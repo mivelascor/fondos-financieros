@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Proyectos - MIV</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .container {
+      text-align: center;
+      padding: 40px;
+    }
+    h1 {
+      font-size: 2.5rem;
+      margin-bottom: 10px;
+      color: #58a6ff;
+    }
+    p {
+      color: #8b949e;
+      margin-bottom: 40px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+      max-width: 800px;
+    }
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 30px 20px;
+      text-decoration: none;
+      color: #e6edf3;
+      transition: all 0.2s;
+    }
+    .card:hover {
+      border-color: #58a6ff;
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(88,166,255,0.15);
+    }
+    .card h2 { font-size: 1.1rem; margin-top: 10px; }
+    .icon { font-size: 2rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Proyectos MIV</h1>
+    <p>Selecciona un proyecto</p>
+    <div class="grid">
+
+      <a class="card" href="o1/MENUO1.html">
+        <div class="icon">🎮</div>
+        <h2>Opción 1</h2>
+      </a>
+
+      <a class="card" href="calculadora.html">
+        <div class="icon">🧮</div>
+        <h2>Opción 2</h2>
+      </a>
+
+      
+        <!-- menu Fondos Financieros -->
+  <a class="card" href="menuFondosFinancieros.html">
+    <div class="icon">📂</div>
+    <h2>Opción 3</h2>
+  </a>
+
+      <!-- Agrega más proyectos así:
+      <a class="card" href="OtroProyecto.html">
+        <div class="icon">🔧</div>
+        <h2>Otro Proyecto</h2>
+      </a>
+      -->
+
+    </div>
+  </div>
+</body>
+</html>
