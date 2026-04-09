@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FIP VANTRUST LIQUIDEZ ACTIVA</title>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    .container {
+      text-align: center;
+      padding: 40px;
+      max-width: 600px;
+      width: 100%;
+    }
+
+    h1 {
+      font-size: 2.5rem;
+      margin-bottom: 10px;
+      color: #58a6ff;
+    }
+
+    p {
+      color: #8b949e;
+      margin-bottom: 40px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+    }
+
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 30px 20px;
+      text-decoration: none;
+      color: #e6edf3;
+      transition: all 0.2s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .card:hover {
+      border-color: #58a6ff;
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(88,166,255,0.15);
+    }
+
+    .icon { font-size: 2rem; }
+    .card h2 { font-size: 1.1rem; margin-top: 10px; }
+
+    /* 🔽 CONTENEDOR CENTRADOR */
+    .center-box {
+      display: flex;
+      justify-content: center;
+      margin-top: 20px;
+    }
+
+    /* 🔽 BOTÓN HISTORIAL */
+    .historial-btn {
+      padding: 15px 15px;
+      min-width: 180px;
+      cursor: pointer;
+    }
+
+    /* 🔽 HISTORIAL */
+    .historial-container {
+      margin-top: 20px;
+      display: none;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .select-group {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+    }
+
+    input[list] {
+      padding: 10px;
+      border-radius: 8px;
+      border: none;
+      background: #161b22;
+      color: #e6edf3;
+      width: 140px;
+    }
+
+    .download-btn {
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: none;
+      background: #58a6ff;
+      color: white;
+      cursor: pointer;
+    }
+
+    .download-btn:hover {
+      background: #3b82f6;
+    }
+
+    .back {
+      display: inline-block;
+      margin-top: 25px;
+      color: #58a6ff;
+      text-decoration: none;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+  </style>
+</head>
+
+<body>
+  <div class="container">
+
+    <h1>FIP VANTRUST LIQUIDEZ ACTIVA</h1>
+    <p>Descarga los archivos disponibles</p>
+
+    <!-- 📥 BOTONES GRANDES -->
+    <div class="grid">
+
+      <a class="card" href="regl.int/76637334-8%20FIP%20LIQUIDEZ%20ACTIVA.pdf" download>
+        <div class="icon">📄</div>
+        <h2>Descarga PDF Reglamento Interno</h2>
+      </a>
+
+      <a class="card" href="folletos/folleto_actual.pdf" download>
+        <div class="icon">📑</div>
+        <h2>Descarga Folleto Comercial</h2>
+      </a>
+
+    </div>
+
+    <!-- 🔽 BOTÓN HISTORIAL CENTRADO -->
+    <div class="center-box">
+      <div class="card historial-btn" onclick="toggleHistorial()">
+        <div class="icon">🗂️</div>
+        <h2 style="font-size: 0.9rem;">Historial de Folletos</h2>
+      </div>
+    </div>
+
+    <!-- 🔽 HISTORIAL -->
+    <div class="historial-container" id="historial">
+
+      <div class="select-group">
+
+        <input list="listaAnios" id="anio" placeholder="Año">
+        <datalist id="listaAnios">
+          <option value="2024">
+          <option value="2025">
+          <option value="2026">
+        </datalist>
+
+        <input list="listaMeses" id="mes" placeholder="Mes">
+        <datalist id="listaMeses">
+          <option value="01 - Enero">
+          <option value="02 - Febrero">
+          <option value="03 - Marzo">
+          <option value="04 - Abril">
+          <option value="05 - Mayo">
+          <option value="06 - Junio">
+          <option value="07 - Julio">
+          <option value="08 - Agosto">
+          <option value="09 - Septiembre">
+          <option value="10 - Octubre">
+          <option value="11 - Noviembre">
+          <option value="12 - Diciembre">
+        </datalist>
+
+      </div>
+
+      <button class="download-btn" onclick="descargarHistorial()">
+        Descargar Folleto
+      </button>
+
+    </div>
+
+    <!-- 🔽 BOTÓN VOLVER ABAJO -->
+    <a class="back" href="MenuFF.html">← Volver al menú de Fondos</a>
+
+  </div>
+
+  <script>
+
+    function toggleHistorial() {
+      const h = document.getElementById("historial");
+      h.style.display = h.style.display === "block" ? "none" : "block";
+    }
+
+    function descargarHistorial() {
+      let anio = document.getElementById("anio").value;
+      let mes = document.getElementById("mes").value;
+
+      if (!anio || !mes) {
+        alert("Selecciona año y mes");
+        return;
+      }
+
+      mes = mes.substring(0,2);
+
+      const url = `folletos/historico/${anio}_${mes}.pdf`;
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "";
+      a.click();
+    }
+
+  </script>
+
+</body>
+</html>

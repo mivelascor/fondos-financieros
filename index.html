@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ingreso - FF</title>
+
+  <!-- Confetti -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      transition: opacity 0.6s ease;
+    }
+
+    .container {
+      text-align: center;
+      padding: 40px;
+      max-width: 400px;
+      width: 100%;
+    }
+
+    h1 {
+      font-size: 2.5rem;
+      margin-bottom: 10px;
+      color: #58a6ff;
+    }
+
+    p {
+      color: #8b949e;
+      margin-bottom: 30px;
+    }
+
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 30px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px;
+      margin-bottom: 20px;
+      border-radius: 8px;
+      border: 1px solid #30363d;
+      background: #0d1117;
+      color: #e6edf3;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      border-radius: 8px;
+      border: none;
+      background: #58a6ff;
+      color: #0d1117;
+      font-weight: bold;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+
+    button.success {
+      background: #2ea043;
+      color: white;
+    }
+
+    .check {
+      font-size: 3rem;
+      margin-top: 15px;
+      display: none;
+    }
+
+    .error {
+      color: #ff7b72;
+      margin-top: 10px;
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="container">
+    <h1>Ingreso Fondos Financieros</h1>
+    <p>Ingresa la contraseña</p>
+
+    <div class="card">
+      <input type="password" id="password" placeholder="Contraseña">
+      <button id="btn" onclick="validarPassword()">Ingresar</button>
+      <div class="check" id="check">✔️</div>
+      <div class="error" id="error">Contraseña incorrecta</div>
+    </div>
+  </div>
+
+  <script>
+
+    // ENTER para ingresar
+    document.getElementById("password").addEventListener("keypress", function(e) {
+      if (e.key === "Enter") validarPassword();
+    });
+
+    // 🔔 sonido éxito (elegante)
+    function playSuccessSound() {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(400, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(900, ctx.currentTime + 0.25);
+
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start();
+      osc.stop(ctx.currentTime + 0.3);
+    }
+
+    // 🚨 sirena error
+    function playErrorSiren() {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = "sawtooth";
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start();
+
+      let up = true;
+      const interval = setInterval(() => {
+        osc.frequency.value = up ? 800 : 400;
+        up = !up;
+      }, 200);
+
+      setTimeout(() => {
+        clearInterval(interval);
+        osc.stop();
+      }, 1200);
+    }
+
+    function validarPassword() {
+      const pass = document.getElementById("password").value;
+
+      if (pass === "1234") {
+
+        const btn = document.getElementById("btn");
+        btn.textContent = "Acceso concedido";
+        btn.classList.add("success");
+
+        document.getElementById("check").style.display = "block";
+        document.getElementById("error").style.display = "none";
+
+        // 🔔 sonido correcto
+        playSuccessSound();
+
+        // 🎉 confetti
+        const duration = 1500;
+        const end = Date.now() + duration;
+
+        (function frame() {
+          confetti({
+            particleCount: 6,
+            angle: 90,
+            spread: 60,
+            origin: { x: Math.random(), y: 0 },
+            gravity: 1
+          });
+
+          if (Date.now() < end) {
+            requestAnimationFrame(frame);
+          }
+        })();
+
+        setTimeout(() => {
+          document.body.style.opacity = "0";
+        }, 1500);
+
+        setTimeout(() => {
+          window.location.href = "MenuFF.html";
+        }, 2500);
+
+      } else {
+
+        document.getElementById("error").style.display = "block";
+
+        // 🚨 sonido error
+        playErrorSiren();
+      }
+    }
+
+  </script>
+
+</body>
+</html>
