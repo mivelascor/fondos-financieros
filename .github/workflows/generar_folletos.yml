@@ -18,24 +18,19 @@ jobs:
   generar:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
       - name: Checkout repositorio
         uses: actions/checkout@v4
-
       - name: Configurar Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       - name: Instalar dependencias Python
         run: pip install -r scripts/requirements.txt
-
       - name: Instalar LibreOffice
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y libreoffice libreoffice-impress
-
       - name: Ejecutar generador de folletos
         env:
           SQL_CONN:       ${{ secrets.SQL_CONN }}
@@ -48,7 +43,6 @@ jobs:
         run: |
           cd scripts
           python main.py "$COMENTARIO_CLP" "$COMENTARIO_USD"
-
       - name: Commit y push folletos generados
         run: |
           git config user.name "github-actions[bot]"
