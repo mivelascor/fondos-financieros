@@ -1,0 +1,85 @@
+# scripts/generador/pptx_builder.py
+from pptx import Presentation
+from pptx.util import Emu, Pt
+from pptx.dml.color import RGBColor
+from io import BytesIO
+from pathlib import Path
+from config import TEMPLATE_PPTX, OLE_POSITIONS
+import pandas as pd
+
+def _reemplazar_texto(slide, nombre_shape: str, texto: str):
+    """Reemplaza texto en un shape por nombre, preservando formato del primer run."""
+    for shape in slide.shapes:
+        if shape.name == nombre_shape and shape.has_text_frame:
+            tf = shape.text_frame
+            # Preservar formato del primer párrafo/run
+            if tf.paragraphs and tf.paragraphs[0].runs:
+                run = tf.paragraphs[0].runs[0]
+                font_copy = {
+                    "bold": run.font.bold,
+                    "size": run.font.size,
+                    "color": run.font.color.rgb if run.font.color and run.font.color.type else None,
+                }
+            # Limpiar y reescribir
+            for para in tf.paragraphs:
+                for run in para.runs:
+                    run.text = ""
+            tf.paragraphs[0].runs[0].text = texto if tf.paragraphs[0].runs else texto
+            return
+
+def _insertar_imagen(slide, img_bytes: bytes, pos: dict):
+    """Inserta imagen PNG en posición exacta (EMU)."""
+    stream = BytesIO(img_bytes)
+    slide.shapes.add_picture(
+        stream,
+        left=pos["left"], top=pos["top"],
+        width=pos["width"], height=pos["height"]
+    )
+
+def generar_pptx(
+    nombre_fondo: str,
+    periodo_str: str,
+    comentario_pm: str,
+    img_evolucion: bytes,
+    img_tabla_rent: bytes,
+    img_composicion: bytes,
+    img_tabla_comp: bytes,
+    df_cartera_resumen: pd.DataFrame,
+    info_fondo: dict,
+    out_path: Path,
+):
+    prs = Presentation(TEMPLATE_PPTX)
+    slide0 = prs.slides[0]
+    slide1 = prs.slides[1]
+
+    # ── Slide 0: textos variables ──────────────────────────────────
+    _reemplazar_texto(slide0, "CuadroTexto 6", nombre_fondo)
+    _reemplazar_texto(slide0, "CuadroTexto 13", comentario_pm)
+    
+    # Info general (shape[18] tiene los valores)
+    shape_valores = slide0.shapes[18]
+    tf = shape_valores.text_frame
+    lineas = [
+        info_fondo.get("administradora", "Vantrust Gestion Patrimonial S.A."),
+        info_fondo.get("rut", "76,637,334-8"),
+        info_fondo.get("moneda", "CLP"),
+        info_fondo.get("tipo", "Fondo de Inversión Privado"),
+        info_fondo.get("fecha_inicio", ""),
+        info_fondo.get("benchmark", "ICP"),
+        "Sí",
+        info_fondo.get("plazo_rescate", "15 días corridos"),
+    ]
+    for i, para in enumerate(tf.paragraphs):
+        if i < len(lineas):
+            if para.runs:
+                para.runs[0].text = lineas[i]
+
+    # ── Slide 0: imágenes reemplazando OLE ─────────────────────────
+    _insertar_imagen(slide0, img_tabla_rent,  OLE_POSITIONS["tabla_rentabilidad"])
+    _insertar_imagen(slide0, img_evolucion,   OLE_POSITIONS["grafico_evolucion"])
+    _insertar_imagen(slide0, img_composicion, OLE_POSITIONS["grafico_composicion"])
+    _insertar_imagen(slide0, img_tabla_comp,  OLE_POSITIONS["tabla_comparacion"])
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    prs.save(out_path)
+    return out_path
