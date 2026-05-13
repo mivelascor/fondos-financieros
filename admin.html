@@ -1,460 +1,92 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Administración — Fondos Financieros</title>
+"""
+etl/icp_extractor.py — Descarga el ICP desde la API REST del Banco Central de Chile.
+"""
+import requests
+import pandas as pd
+from config import BCCH_USER, BCCH_PASS, BCCH_SERIE_ICP
 
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
 
-    body {
-      font-family: 'Segoe UI', sans-serif;
-      background: #0d1117;
-      color: #e6edf3;
-      display: flex;
-      justify-content: center;
-      align-items: flex-start;
-      min-height: 100vh;
-      padding: 48px 20px;
-    }
+def get_icp_eom(desde: str, hasta: str) -> pd.DataFrame:
+    """
+    Descarga la serie del ICP desde el BCCh y retorna el valor de fin de mes.
+    desde / hasta: formato YYYY-MM-DD
 
-    .container {
-      max-width: 680px;
-      width: 100%;
-    }
+    Retorna: fecha, icp
+    """
+    url = (
+        "https://si3.bcentral.cl/SieteRestWS/SieteRestWS.ashx"
+        f"?user={BCCH_USER}&pass={BCCH_PASS}"
+        f"&firstdate={desde}&lastdate={hasta}"
+        f"&timeseries={BCCH_SERIE_ICP}&function=GetSeries"
+    )
+    try:
+        r = requests.get(url, timeout=30)
+        r.raise_for_status()
+        data = r.json()
 
-    /* Header */
-    .header {
-      margin-bottom: 36px;
-    }
+        rows = []
+        for serie in data.get("Series", []):
+            for obs in serie.get("Obs", []):
+                val = obs.get("value", "")
+                if val not in ("", "NaN", None):
+                    rows.append({
+                        "fecha": obs["indexDateString"],
+                        "icp":   float(val)
+                    })
 
-    .badge {
-      display: inline-block;
-      padding: 4px 12px;
-      border-radius: 20px;
-      font-size: 11px;
-      font-weight: bold;
-      background: #1c2d3e;
-      color: #58a6ff;
-      border: 1px solid #2d6a9f;
-      margin-bottom: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
+        if not rows:
+            raise ValueError("BCCh no devolvió datos para el ICP")
 
-    h1 {
-      font-size: 1.9rem;
-      color: #58a6ff;
-      margin-bottom: 8px;
-    }
+        df = pd.DataFrame(rows)
+        df["fecha"] = pd.to_datetime(df["fecha"])
 
-    .subtitle {
-      color: #8b949e;
-      font-size: 14px;
-      line-height: 1.6;
-    }
+    except Exception as e:
+        print(f"[WARN] No se pudo obtener ICP del BCCh: {e}")
+        print("[INFO] Usando ICP desde el Excel template como fallback")
+        df = _icp_desde_excel()
 
-    /* Secciones */
-    .section {
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 12px;
-      padding: 24px;
-      margin-bottom: 20px;
-    }
+    # Filtrar fin de mes
+    df["anio_mes"] = df["fecha"].dt.to_period("M")
+    df_eom = (
+        df.sort_values("fecha")
+          .groupby("anio_mes")
+          .last()
+          .reset_index()
+          .drop(columns=["anio_mes"])
+    )
+    return df_eom[["fecha", "icp"]]
 
-    .section-title {
-      font-size: 13px;
-      font-weight: bold;
-      color: #58a6ff;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 16px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
 
-    label {
-      display: block;
-      font-size: 13px;
-      font-weight: 600;
-      color: #c9d1d9;
-      margin-bottom: 8px;
-      margin-top: 16px;
-    }
+def _icp_desde_excel() -> pd.DataFrame:
+    """
+    Fallback: lee el ICP desde la hoja 'Datos ICP (2)' del Excel template.
+    Útil cuando el BCCh no está disponible o las credenciales aún no están configuradas.
+    """
+    import openpyxl
+    from pathlib import Path
 
-    label:first-of-type { margin-top: 0; }
+    # Busca el Excel en la carpeta templates/
+    xlsx_path = Path(__file__).parent.parent / "templates" / "TEMPLATE_FONDO.xlsx"
+    if not xlsx_path.exists():
+        raise FileNotFoundError(f"No se encontró {xlsx_path} para fallback de ICP")
 
-    textarea {
-      width: 100%;
-      height: 120px;
-      padding: 12px;
-      background: #0d1117;
-      border: 1px solid #30363d;
-      border-radius: 8px;
-      color: #e6edf3;
-      font-size: 14px;
-      font-family: 'Segoe UI', sans-serif;
-      resize: vertical;
-      line-height: 1.6;
-      transition: border-color 0.2s;
-    }
+    wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
+    ws = wb["Datos ICP (2)"]
 
-    textarea:focus {
-      outline: none;
-      border-color: #58a6ff;
-    }
+    rows = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        fecha_raw, icp_val = row[0], row[1]
+        if fecha_raw is None or icp_val is None:
+            continue
+        try:
+            # Las fechas en el Excel son números seriales de Excel
+            if isinstance(fecha_raw, (int, float)):
+                fecha = pd.Timestamp("1899-12-30") + pd.Timedelta(days=int(fecha_raw))
+            else:
+                fecha = pd.Timestamp(fecha_raw)
+            rows.append({"fecha": fecha, "icp": float(icp_val)})
+        except Exception:
+            continue
 
-    .counter {
-      text-align: right;
-      font-size: 11px;
-      color: #8b949e;
-      margin-top: 4px;
-    }
-
-    /* Token */
-    .token-input {
-      width: 100%;
-      padding: 10px 12px;
-      background: #0d1117;
-      border: 1px solid #30363d;
-      border-radius: 8px;
-      color: #e6edf3;
-      font-size: 13px;
-      font-family: monospace;
-      transition: border-color 0.2s;
-    }
-
-    .token-input:focus { outline: none; border-color: #58a6ff; }
-
-    .token-hint {
-      font-size: 12px;
-      color: #8b949e;
-      margin-top: 8px;
-      line-height: 1.5;
-    }
-
-    .token-hint a {
-      color: #58a6ff;
-      text-decoration: none;
-    }
-
-    .token-hint a:hover { text-decoration: underline; }
-
-    /* Botones */
-    .btn-row {
-      display: flex;
-      gap: 12px;
-      margin-top: 8px;
-    }
-
-    .btn {
-      padding: 13px 24px;
-      border-radius: 8px;
-      border: none;
-      font-size: 14px;
-      font-weight: bold;
-      cursor: pointer;
-      transition: 0.2s;
-    }
-
-    .btn-generar {
-      background: #2ea043;
-      color: white;
-      flex: 1;
-    }
-
-    .btn-generar:hover:not(:disabled) { background: #3fb950; }
-
-    .btn-generar:disabled {
-      background: #21262d;
-      color: #8b949e;
-      cursor: not-allowed;
-    }
-
-    .btn-volver {
-      background: #21262d;
-      color: #e6edf3;
-      border: 1px solid #30363d;
-    }
-
-    .btn-volver:hover { border-color: #58a6ff; color: #58a6ff; }
-
-    /* Estado */
-    #estado {
-      margin-top: 20px;
-      padding: 16px;
-      border-radius: 10px;
-      font-size: 14px;
-      line-height: 1.6;
-      display: none;
-    }
-
-    .estado-info  { background: #1c2d3e; border: 1px solid #2d6a9f; color: #79c0ff; }
-    .estado-ok    { background: #1a2e21; border: 1px solid #2ea043; color: #56d364; }
-    .estado-error { background: #2d1a1a; border: 1px solid #f85149; color: #ff7b72; }
-
-    .spinner {
-      display: inline-block;
-      width: 13px;
-      height: 13px;
-      border: 2px solid currentColor;
-      border-top-color: transparent;
-      border-radius: 50%;
-      animation: spin 0.7s linear infinite;
-      vertical-align: middle;
-      margin-right: 6px;
-    }
-
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    /* Info box */
-    .info-box {
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 10px;
-      padding: 16px 20px;
-      margin-bottom: 20px;
-      font-size: 13px;
-      color: #8b949e;
-      line-height: 1.6;
-    }
-
-    .info-box strong { color: #c9d1d9; }
-
-    /* Pasos */
-    .steps {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 20px;
-      flex-wrap: wrap;
-    }
-
-    .step {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      color: #8b949e;
-    }
-
-    .step-num {
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      background: #21262d;
-      border: 1px solid #30363d;
-      color: #58a6ff;
-      font-size: 11px;
-      font-weight: bold;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-
-    .step-arrow { color: #30363d; }
-
-    /* Footer */
-    .footer {
-      text-align: center;
-      margin-top: 28px;
-    }
-
-    .footer a {
-      color: #8b949e;
-      font-size: 13px;
-      text-decoration: none;
-      transition: 0.2s;
-    }
-
-    .footer a:hover { color: #58a6ff; }
-  </style>
-</head>
-
-<body>
-  <div class="container">
-
-    <!-- Header -->
-    <div class="header">
-      <div class="badge">⚙ Administración</div>
-      <h1>Generación de Folletos</h1>
-      <p class="subtitle">
-        Ingresa los comentarios del Portfolio Manager y presiona <strong>Generar</strong>.<br>
-        GitHub Actions procesará los 24 fondos y publicará los PDFs automáticamente.
-      </p>
-    </div>
-
-    <!-- Flujo resumido -->
-    <div class="steps">
-      <div class="step">
-        <div class="step-num">1</div>
-        <span>Comentarios</span>
-      </div>
-      <div class="step-arrow">→</div>
-      <div class="step">
-        <div class="step-num">2</div>
-        <span>Datos SQL + ICP + CMF</span>
-      </div>
-      <div class="step-arrow">→</div>
-      <div class="step">
-        <div class="step-num">3</div>
-        <span>Cálculos</span>
-      </div>
-      <div class="step-arrow">→</div>
-      <div class="step">
-        <div class="step-num">4</div>
-        <span>24 PDFs</span>
-      </div>
-      <div class="step-arrow">→</div>
-      <div class="step">
-        <div class="step-num">5</div>
-        <span>ZIP en GitHub</span>
-      </div>
-    </div>
-
-    <!-- Comentarios -->
-    <div class="section">
-      <div class="section-title">📝 Comentarios del Portfolio Manager</div>
-
-      <label for="comentario_clp">Comentario — Fondos CLP</label>
-      <textarea id="comentario_clp"
-        placeholder="Ingresa el comentario para los fondos en pesos chilenos..."
-        oninput="contarCaracteres('comentario_clp', 'cnt_clp')"></textarea>
-      <div class="counter" id="cnt_clp">0 caracteres</div>
-
-      <label for="comentario_usd">Comentario — Fondos USD</label>
-      <textarea id="comentario_usd"
-        placeholder="Ingresa el comentario para los fondos en dólares..."
-        oninput="contarCaracteres('comentario_usd', 'cnt_usd')"></textarea>
-      <div class="counter" id="cnt_usd">0 caracteres</div>
-    </div>
-
-    <!-- Token -->
-    <div class="section">
-      <div class="section-title">🔑 Autenticación GitHub</div>
-      <input type="password" class="token-input" id="gh_token"
-             placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxx">
-      <p class="token-hint">
-        Token Personal de GitHub con permiso <strong>repo</strong>. Se guarda en tu
-        navegador y no se envía a ningún servidor externo.<br>
-        <a href="https://github.com/settings/tokens/new?scopes=repo&description=folletos-vantrust"
-           target="_blank">→ Crear token en GitHub</a>
-      </p>
-    </div>
-
-    <!-- Botones -->
-    <div class="btn-row">
-      <button class="btn btn-generar" id="btnGenerar" onclick="generar()">
-        ▶ Generar folletos del mes
-      </button>
-      <button class="btn btn-volver" onclick="window.location.href='MenuFF.html'">
-        ← Volver
-      </button>
-    </div>
-
-    <!-- Estado -->
-    <div id="estado"></div>
-
-    <!-- Footer -->
-    <div class="footer">
-      <a href="https://github.com/mivelascor/fondos-financieros/actions" target="_blank">
-        Ver historial de ejecuciones en GitHub Actions →
-      </a>
-    </div>
-
-  </div>
-
-  <script>
-    const REPO   = "mivelascor/fondos-financieros";
-    const BRANCH = "main";
-
-    // Cargar token guardado al iniciar
-    window.onload = () => {
-      const t = localStorage.getItem("vt_gh_token");
-      if (t) document.getElementById("gh_token").value = t;
-    };
-
-    function contarCaracteres(id, cntId) {
-      const n = document.getElementById(id).value.length;
-      document.getElementById(cntId).textContent = `${n} caracteres`;
-    }
-
-    function mostrar(html, tipo) {
-      const el = document.getElementById("estado");
-      el.innerHTML = html;
-      el.className = "estado-" + tipo;
-      el.style.display = "block";
-      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }
-
-    async function generar() {
-      const clp   = document.getElementById("comentario_clp").value.trim();
-      const usd   = document.getElementById("comentario_usd").value.trim();
-      const token = document.getElementById("gh_token").value.trim();
-
-      if (!clp)   { mostrar("⚠️ Falta el comentario CLP.", "error"); return; }
-      if (!usd)   { mostrar("⚠️ Falta el comentario USD.", "error"); return; }
-      if (!token) { mostrar("⚠️ Falta el GitHub token.", "error"); return; }
-
-      // Guardar token
-      localStorage.setItem("vt_gh_token", token);
-
-      const btn = document.getElementById("btnGenerar");
-      btn.disabled = true;
-      mostrar('<span class="spinner"></span> Enviando solicitud a GitHub Actions...', "info");
-
-      try {
-        const resp = await fetch(
-          `https://api.github.com/repos/${REPO}/dispatches`,
-          {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-              "Accept": "application/vnd.github+json",
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              event_type: "generar_folletos",
-              client_payload: {
-                comentario_clp: clp,
-                comentario_usd: usd
-              }
-            })
-          }
-        );
-
-        if (resp.status === 204) {
-          mostrar(
-            `✅ <strong>Proceso iniciado.</strong><br><br>
-             GitHub Actions está generando los 24 folletos ahora mismo.<br>
-             Tiempo estimado: <strong>8–12 minutos</strong>.<br><br>
-             Monitorea el progreso en:<br>
-             <a href="https://github.com/${REPO}/actions" target="_blank"
-                style="color:#58a6ff;">
-               github.com/${REPO}/actions →
-             </a>`,
-            "ok"
-          );
-        } else {
-          const body = await resp.json().catch(() => ({}));
-          mostrar(
-            `❌ <strong>Error al iniciar el workflow.</strong><br>
-             Código HTTP: <code>${resp.status}</code><br>
-             Mensaje: ${body.message || "Sin detalle"}<br><br>
-             Verifica que el token tenga permiso <code>repo</code> y que el workflow
-             esté habilitado en GitHub Actions.`,
-            "error"
-          );
-        }
-      } catch(e) {
-        mostrar(`❌ Error de red: ${e.message}`, "error");
-      } finally {
-        btn.disabled = false;
-      }
-    }
-  </script>
-</body>
-</html>
+    wb.close()
+    return pd.DataFrame(rows)

@@ -1,1 +1,9 @@
-
+pandas==2.2.2
+openpyxl==3.1.2
+python-pptx==0.6.23
+matplotlib==3.8.4
+requests==2.32.3
+beautifulsoup4==4.12.3
+sqlalchemy==2.0.30
+pyarrow==16.0.0
+pyodbc==5.1.0

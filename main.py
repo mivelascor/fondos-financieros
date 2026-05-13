@@ -1,1 +1,57 @@
+name: Generar folletos mensuales
 
+on:
+  repository_dispatch:
+    types: [generar_folletos]
+  workflow_dispatch:
+    inputs:
+      comentario_clp:
+        description: 'Comentario fondos CLP'
+        required: true
+        default: ''
+      comentario_usd:
+        description: 'Comentario fondos USD'
+        required: true
+        default: ''
+
+jobs:
+  generar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias Python
+        run: pip install -r scripts/requirements.txt
+
+      - name: Instalar LibreOffice
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libreoffice libreoffice-impress
+
+      - name: Ejecutar generador de folletos
+        env:
+          SQL_CONN:       ${{ secrets.SQL_CONN }}
+          BCCH_USER:      ${{ secrets.BCCH_USER }}
+          BCCH_PASS:      ${{ secrets.BCCH_PASS }}
+          GH_TOKEN:       ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO:        ${{ github.repository }}
+          COMENTARIO_CLP: ${{ github.event.client_payload.comentario_clp || inputs.comentario_clp }}
+          COMENTARIO_USD: ${{ github.event.client_payload.comentario_usd || inputs.comentario_usd }}
+        run: |
+          cd scripts
+          python main.py "$COMENTARIO_CLP" "$COMENTARIO_USD"
+
+      - name: Commit y push folletos generados
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add folletos/
+          git diff --staged --quiet || git commit -m "Folletos $(date +'%Y-%m') - generación automática"
+          git push
