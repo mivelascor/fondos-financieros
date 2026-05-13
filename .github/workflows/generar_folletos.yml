@@ -1,85 +1,58 @@
-# scripts/generador/pptx_builder.py
-from pptx import Presentation
-from pptx.util import Emu, Pt
-from pptx.dml.color import RGBColor
-from io import BytesIO
-from pathlib import Path
-from config import TEMPLATE_PPTX, OLE_POSITIONS
-import pandas as pd
+name: Generar folletos mensuales
 
-def _reemplazar_texto(slide, nombre_shape: str, texto: str):
-    """Reemplaza texto en un shape por nombre, preservando formato del primer run."""
-    for shape in slide.shapes:
-        if shape.name == nombre_shape and shape.has_text_frame:
-            tf = shape.text_frame
-            # Preservar formato del primer párrafo/run
-            if tf.paragraphs and tf.paragraphs[0].runs:
-                run = tf.paragraphs[0].runs[0]
-                font_copy = {
-                    "bold": run.font.bold,
-                    "size": run.font.size,
-                    "color": run.font.color.rgb if run.font.color and run.font.color.type else None,
-                }
-            # Limpiar y reescribir
-            for para in tf.paragraphs:
-                for run in para.runs:
-                    run.text = ""
-            tf.paragraphs[0].runs[0].text = texto if tf.paragraphs[0].runs else texto
-            return
+on:
+  repository_dispatch:
+    types: [generar_folletos]
+  workflow_dispatch:
+    inputs:
+      comentario_clp:
+        description: 'Comentario fondos CLP'
+        required: true
+        default: ''
+      comentario_usd:
+        description: 'Comentario fondos USD'
+        required: true
+        default: ''
 
-def _insertar_imagen(slide, img_bytes: bytes, pos: dict):
-    """Inserta imagen PNG en posición exacta (EMU)."""
-    stream = BytesIO(img_bytes)
-    slide.shapes.add_picture(
-        stream,
-        left=pos["left"], top=pos["top"],
-        width=pos["width"], height=pos["height"]
-    )
+jobs:
+  generar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
 
-def generar_pptx(
-    nombre_fondo: str,
-    periodo_str: str,
-    comentario_pm: str,
-    img_evolucion: bytes,
-    img_tabla_rent: bytes,
-    img_composicion: bytes,
-    img_tabla_comp: bytes,
-    df_cartera_resumen: pd.DataFrame,
-    info_fondo: dict,
-    out_path: Path,
-):
-    prs = Presentation(TEMPLATE_PPTX)
-    slide0 = prs.slides[0]
-    slide1 = prs.slides[1]
+    steps:
+      - name: Checkout repositorio
+        uses: actions/checkout@v4
 
-    # ── Slide 0: textos variables ──────────────────────────────────
-    _reemplazar_texto(slide0, "CuadroTexto 6", nombre_fondo)
-    _reemplazar_texto(slide0, "CuadroTexto 13", comentario_pm)
-    
-    # Info general (shape[18] tiene los valores)
-    shape_valores = slide0.shapes[18]
-    tf = shape_valores.text_frame
-    lineas = [
-        info_fondo.get("administradora", "Vantrust Gestion Patrimonial S.A."),
-        info_fondo.get("rut", "76,637,334-8"),
-        info_fondo.get("moneda", "CLP"),
-        info_fondo.get("tipo", "Fondo de Inversión Privado"),
-        info_fondo.get("fecha_inicio", ""),
-        info_fondo.get("benchmark", "ICP"),
-        "Sí",
-        info_fondo.get("plazo_rescate", "15 días corridos"),
-    ]
-    for i, para in enumerate(tf.paragraphs):
-        if i < len(lineas):
-            if para.runs:
-                para.runs[0].text = lineas[i]
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-    # ── Slide 0: imágenes reemplazando OLE ─────────────────────────
-    _insertar_imagen(slide0, img_tabla_rent,  OLE_POSITIONS["tabla_rentabilidad"])
-    _insertar_imagen(slide0, img_evolucion,   OLE_POSITIONS["grafico_evolucion"])
-    _insertar_imagen(slide0, img_composicion, OLE_POSITIONS["grafico_composicion"])
-    _insertar_imagen(slide0, img_tabla_comp,  OLE_POSITIONS["tabla_comparacion"])
+      - name: Instalar dependencias Python
+        run: pip install -r scripts/requirements.txt
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    prs.save(out_path)
-    return out_path
+      - name: Instalar LibreOffice
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libreoffice libreoffice-impress
+
+      - name: Ejecutar generador de folletos
+        env:
+          SQL_CONN:       ${{ secrets.SQL_CONN }}
+          BCCH_USER:      ${{ secrets.BCCH_USER }}
+          BCCH_PASS:      ${{ secrets.BCCH_PASS }}
+          GH_TOKEN:       ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO:        ${{ github.repository }}
+          COMENTARIO_CLP: ${{ github.event.client_payload.comentario_clp || inputs.comentario_clp }}
+          COMENTARIO_USD: ${{ github.event.client_payload.comentario_usd || inputs.comentario_usd }}
+        run: |
+          cd scripts
+          python main.py "$COMENTARIO_CLP" "$COMENTARIO_USD"
+
+      - name: Commit y push folletos generados
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add folletos/
+          git diff --staged --quiet || git commit -m "Folletos $(date +'%Y-%m') - generación automática"
+          git push
