@@ -12,6 +12,9 @@ GITHUB_TOKEN  = os.environ.get("GH_TOKEN", "")
 GITHUB_REPO   = os.environ.get("GH_REPO", "mivelascor/fondos-financieros")
 GITHUB_BRANCH = "main"
 
+CMF_COMP_CLP = {"nombre": "FONDO MUTUO SANTANDER MONEY MARKET", "rut": "8057", "row": "AAAw cAAhAAAACcAAs"}
+CMF_COMP_USD = {"nombre": "FONDO MUTUO BANCHILE CORPORATE DOLLAR", "rut": "8248", "row": ""}
+
 FONDOS_CON_FOLLETO = [
     "FIP VANTRUST LIQUIDEZ ACTIVA",
     "FIP VANTRUST LIQUIDEZ ALTO APORTE",
