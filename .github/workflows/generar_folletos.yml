@@ -17,7 +17,7 @@ on:
 jobs:
   generar:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - name: Checkout repositorio
         uses: actions/checkout@v4
@@ -47,10 +47,10 @@ jobs:
           cd scripts
           python main.py "$COMENTARIO_CLP" "$COMENTARIO_USD"
 
-      - name: Commit y push folletos generados
+      - name: Commit y push folletos al repo
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add folletos/
-          git diff --staged --quiet || git commit -m "Folletos $(date +'%Y-%m') - generación automática"
+          git diff --staged --quiet || git commit -m "Folletos $(date +'%Y-%m') — generación automática"
           git push
