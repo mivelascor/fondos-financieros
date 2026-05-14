@@ -1,286 +1,208 @@
 """
-main.py — Orquestador principal del sistema de folletos.
-
-Uso:
-    python main.py "Comentario CLP..." "Comentario USD..."
-
-El script:
-1. Extrae datos de SQL, BCCh y CMF
-2. Calcula rentabilidades (base 1000, mensual, trimestral, semestral, anual, YTD)
-3. Genera 24 PPTX con gráficos e imágenes
-4. Exporta a PDF con LibreOffice
-5. Crea un ZIP con todos los PDFs
-6. Sube los PDFs y el ZIP a GitHub
+generador/graficos.py — Genera imágenes PNG que reemplazan los OLE del PPTX.
+Cada función retorna bytes PNG listos para insertar en el PPTX.
 """
-import sys
-import os
-import zipfile
-import base64
-import requests
-from datetime import date, timedelta
-from pathlib import Path
-
+import io
+import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")   # sin pantalla (servidor)
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mtick
+from matplotlib.patches import FancyBboxPatch
 
-# ── Importar módulos propios ──────────────────────────────────────────────────
-from config import (
-    FONDOS_CON_FOLLETO, OUTPUT_DIR, DATA_DIR,
-    GITHUB_TOKEN, GITHUB_REPO, GITHUB_BRANCH,
-    get_info_fondo,
-)
-from etl.sql_extractor   import get_valores_cuota_eom, get_cartera
-from etl.icp_extractor   import get_icp_eom
-from etl.cmf_scraper     import get_competencia_clp, get_competencia_usd
-from calculos.rentabilidades import (
-    normalizar_b1000,
-    construir_tabla_rentabilidades,
-    construir_rentabilidades_mensuales,
-)
-from generador.graficos import (
-    grafico_evolucion,
-    tabla_rentabilidades_img,
-    grafico_composicion_duracion,
-    tabla_comparacion_mensual,
-)
-from generador.pptx_builder import generar_pptx
-from generador.pdf_exporter import pptx_a_pdf
+# ── Paleta corporativa ────────────────────────────────────────────────────────
+C_FONDO = "#003366"
+C_COMP  = "#7F7F7F"
+C_ICP   = "#BFA060"
+C_BG    = "#FFFFFF"
+C_GRID  = "#E8E8E8"
+FONT    = "DejaVu Sans"
 
 
-# ── GitHub helpers ────────────────────────────────────────────────────────────
-def _github_put(file_path: Path, repo_path: str, mensaje: str):
-    """Sube o actualiza un archivo en GitHub via API."""
-    headers = {
-        "Authorization": f"Bearer {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github+json",
-    }
-    api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{repo_path}"
-
-    # Obtener SHA si el archivo ya existe
-    r = requests.get(api_url, headers=headers, timeout=30)
-    sha = r.json().get("sha") if r.status_code == 200 else None
-
-    with open(file_path, "rb") as f:
-        content_b64 = base64.b64encode(f.read()).decode()
-
-    payload = {
-        "message": mensaje,
-        "content": content_b64,
-        "branch":  GITHUB_BRANCH,
-    }
-    if sha:
-        payload["sha"] = sha
-
-    r = requests.put(api_url, headers=headers, json=payload, timeout=60)
-    if r.status_code not in (200, 201):
-        print(f"  [WARN] GitHub PUT falló para {repo_path}: {r.status_code} {r.text[:200]}")
-    else:
-        print(f"  [OK] Subido: {repo_path}")
+def _to_bytes(fig) -> bytes:
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight",
+                facecolor=C_BG, edgecolor="none")
+    buf.seek(0)
+    plt.close(fig)
+    return buf.read()
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
-def run(comentario_clp: str, comentario_usd: str):
-    hoy       = date.today()
-    fecha_fin = hoy.replace(day=1) - timedelta(days=1)   # último día del mes anterior
-    mes_str   = fecha_fin.strftime("%Y-%m")
-    periodo   = fecha_fin.strftime("%B %Y").capitalize()
-    desde_str = (fecha_fin - pd.DateOffset(months=14)).strftime("%Y-%m-%d")
-    hasta_str = fecha_fin.strftime("%Y-%m-%d")
-
-    print(f"\n{'='*60}")
-    print(f" GENERANDO FOLLETOS — {periodo}")
-    print(f"{'='*60}\n")
-
-    # ── Paso 1: Extracción de datos ───────────────────────────────────────────
-    print("[1/6] Extrayendo datos...")
-
-    print("  → SQL: valores cuota")
-    df_vc = get_valores_cuota_eom()
-    print(f"      {len(df_vc)} registros, {df_vc['fondo'].nunique()} fondos")
-
-    print("  → SQL: composición de cartera")
-    df_cartera = get_cartera(hasta_str)
-    print(f"      {len(df_cartera)} instrumentos")
-
-    print("  → BCCh: ICP")
-    df_icp = get_icp_eom(desde_str, hasta_str)
-    print(f"      {len(df_icp)} meses de ICP")
-
-    print("  → CMF: competencia CLP")
-    df_comp_clp = get_competencia_clp()
-    print(f"      {len(df_comp_clp)} registros")
-
-    print("  → CMF: competencia USD")
-    df_comp_usd = get_competencia_usd()
-    print(f"      {len(df_comp_usd)} registros")
-
-    # Guardar Parquet para trazabilidad
-    DATA_DIR.mkdir(exist_ok=True)
-    df_vc.to_parquet(DATA_DIR / "valores_cuota.parquet")
-    df_icp.to_parquet(DATA_DIR / "icp.parquet")
-    df_comp_clp.to_parquet(DATA_DIR / "comp_clp.parquet")
-    df_comp_usd.to_parquet(DATA_DIR / "comp_usd.parquet")
-    df_cartera.to_parquet(DATA_DIR / "cartera.parquet")
-
-    # ── Paso 2: Generar folletos ──────────────────────────────────────────────
-    print(f"\n[2/6] Generando {len(FONDOS_CON_FOLLETO)} folletos...")
-
-    pptx_dir  = OUTPUT_DIR / mes_str / "pptx"
-    pdf_dir   = OUTPUT_DIR / mes_str
-    pptx_dir.mkdir(parents=True, exist_ok=True)
-    pdf_dir.mkdir(parents=True, exist_ok=True)
-
-    pdf_paths  = []
-    errores    = []
-    fd_ts      = pd.Timestamp(fecha_fin)
-
-    # Preparar series ICP indexadas por fecha
-    icp_serie = pd.Series(
-        df_icp["icp"].values,
-        index=pd.DatetimeIndex(df_icp["fecha"])
-    ).sort_index()
-
-    # Series de competencia
-    comp_clp_serie = pd.Series(
-        df_comp_clp["valor_cuota"].values,
-        index=pd.DatetimeIndex(df_comp_clp["fecha"])
-    ).sort_index() if not df_comp_clp.empty else pd.Series(dtype=float)
-
-    comp_usd_serie = pd.Series(
-        df_comp_usd["valor_cuota"].values,
-        index=pd.DatetimeIndex(df_comp_usd["fecha"])
-    ).sort_index() if not df_comp_usd.empty else pd.Series(dtype=float)
-
-    for nombre_fondo in FONDOS_CON_FOLLETO:
-        try:
-            print(f"\n  ▶ {nombre_fondo}")
-
-            # Determinar moneda y comentario
-            es_usd = any(x in nombre_fondo.upper() for x in ("DOLAR", "USD"))
-            moneda     = "USD" if es_usd else "CLP"
-            comentario = comentario_usd if es_usd else comentario_clp
-            comp_serie = comp_usd_serie if es_usd else comp_clp_serie
-
-            # Serie del fondo
-            df_f = df_vc[df_vc["fondo"] == nombre_fondo].copy()
-            if df_f.empty:
-                raise ValueError(f"Sin datos de valor cuota en SQL")
-
-            df_f = df_f.sort_values("fecha")
-            fecha_inicio = pd.Timestamp(df_f["fecha"].min())
-            fondo_serie  = pd.Series(
-                df_f["valor_cuota"].values,
-                index=pd.DatetimeIndex(df_f["fecha"])
-            ).sort_index()
-
-            # Normalizar base 1000 desde fecha de inicio del fondo
-            b1000_f = normalizar_b1000(fondo_serie, fecha_inicio)
-            b1000_c = normalizar_b1000(comp_serie,  fecha_inicio) if not comp_serie.empty else pd.Series(dtype=float)
-            b1000_i = normalizar_b1000(icp_serie,   fecha_inicio)
-
-            # Tabla de rentabilidades
-            metricas = construir_tabla_rentabilidades(b1000_f, b1000_c, b1000_i, fd_ts)
-
-            # Rentabilidades mensuales (últimos 12 meses)
-            df_rentm = construir_rentabilidades_mensuales(b1000_f, b1000_c, b1000_i, fd_ts, n_meses=12)
-
-            # DataFrame para gráfico de evolución
-            df_evo = pd.DataFrame({
-                "fecha":        b1000_f.index,
-                "b1000_fondo":  b1000_f.values,
-            }).merge(
-                pd.DataFrame({"fecha": b1000_c.index, "b1000_comp": b1000_c.values}),
-                on="fecha", how="outer"
-            ).merge(
-                pd.DataFrame({"fecha": b1000_i.index, "b1000_icp": b1000_i.values}),
-                on="fecha", how="outer"
-            ).sort_values("fecha").reset_index(drop=True)
-
-            # Cartera del fondo
-            cartera_f = df_cartera[df_cartera["fondo"] == nombre_fondo].copy()
-
-            # ── Generar imágenes ──────────────────────────────────────────────
-            img_evo   = grafico_evolucion(df_evo)
-            img_rent  = tabla_rentabilidades_img(metricas)
-            img_comp  = grafico_composicion_duracion(cartera_f)
-            img_tabm  = tabla_comparacion_mensual(df_rentm)
-
-            # Info del fondo
-            info = get_info_fondo(nombre_fondo, moneda)
-            info["fecha_inicio"] = fecha_inicio.strftime("%B %Y").capitalize()
-
-            # ── Generar PPTX ──────────────────────────────────────────────────
-            nombre_archivo = nombre_fondo.replace(" ", "_")
-            pptx_path = pptx_dir / f"{nombre_archivo}.pptx"
-
-            generar_pptx(
-                nombre_fondo   = nombre_fondo,
-                periodo_str    = periodo,
-                comentario_pm  = comentario,
-                img_evolucion  = img_evo,
-                img_tabla_rent = img_rent,
-                img_composicion= img_comp,
-                img_tabla_comp = img_tabm,
-                info_fondo     = info,
-                out_path       = pptx_path,
-            )
-            print(f"    ✓ PPTX generado")
-
-            # ── Exportar a PDF ────────────────────────────────────────────────
-            pdf_path = pptx_a_pdf(pptx_path, pdf_dir)
-            pdf_paths.append(pdf_path)
-            print(f"    ✓ PDF: {pdf_path.name}")
-
-        except Exception as e:
-            print(f"    ✗ ERROR: {e}")
-            errores.append((nombre_fondo, str(e)))
-
-    # ── Paso 3: Crear ZIP ─────────────────────────────────────────────────────
-    print(f"\n[3/6] Creando ZIP con {len(pdf_paths)} PDFs...")
-    zip_mes_path    = pdf_dir / f"folletos_{mes_str}.zip"
-    zip_latest_path = OUTPUT_DIR / "latest.zip"
-
-    for zip_path in (zip_mes_path, zip_latest_path):
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for pdf in pdf_paths:
-                zf.write(pdf, arcname=pdf.name)
-    print(f"    ✓ folletos_{mes_str}.zip  ({zip_mes_path.stat().st_size // 1024} KB)")
-
-    # ── Paso 4: Subir a GitHub ────────────────────────────────────────────────
-    if GITHUB_TOKEN:
-        print(f"\n[4/6] Subiendo a GitHub ({GITHUB_REPO})...")
-
-        # latest.zip
-        _github_put(zip_latest_path, "folletos/latest.zip",
-                    f"Folletos {mes_str} - latest.zip")
-
-        # ZIP del mes
-        _github_put(zip_mes_path, f"folletos/{mes_str}/folletos_{mes_str}.zip",
-                    f"Folletos {mes_str} - ZIP")
-
-        # PDFs individuales
-        for pdf in pdf_paths:
-            _github_put(pdf, f"folletos/{mes_str}/{pdf.name}",
-                        f"Folleto {pdf.stem} - {mes_str}")
-    else:
-        print("\n[4/6] GITHUB_TOKEN no configurado — saltando subida a GitHub")
-        print(f"      Archivos disponibles en: {pdf_dir}")
-
-    # ── Resumen ───────────────────────────────────────────────────────────────
-    print(f"\n{'='*60}")
-    print(f" RESUMEN — {periodo}")
-    print(f"  ✓ {len(pdf_paths)} folletos generados")
-    if errores:
-        print(f"  ✗ {len(errores)} errores:")
-        for nombre, err in errores:
-            print(f"      - {nombre}: {err}")
-    print(f"{'='*60}\n")
+def _fmt_pct(v, decimals=2) -> str:
+    if pd.isna(v):
+        return "—"
+    return f"{v*100:+.{decimals}f}%"
 
 
-if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Uso: python main.py \"Comentario CLP\" \"Comentario USD\"")
-        sys.exit(1)
+# ── 1. Gráfico de evolución (líneas base 1000) ────────────────────────────────
+def grafico_evolucion(df: pd.DataFrame) -> bytes:
+    """
+    df columnas: fecha, b1000_fondo, b1000_comp, b1000_icp
+    """
+    fig, ax = plt.subplots(figsize=(7.5, 4), facecolor=C_BG)
+    ax.set_facecolor(C_BG)
 
-    comentario_clp = sys.argv[1]
-    comentario_usd = sys.argv[2]
-    run(comentario_clp, comentario_usd)
+    # Rellenar área bajo el fondo
+    ax.fill_between(df["fecha"], df["b1000_fondo"],
+                    alpha=0.08, color=C_FONDO)
+
+    ax.plot(df["fecha"], df["b1000_fondo"], label="Fondo",
+            color=C_FONDO, linewidth=2.2, zorder=3)
+    ax.plot(df["fecha"], df["b1000_comp"], label="Competencia",
+            color=C_COMP, linewidth=1.5, linestyle="--", zorder=2)
+    ax.plot(df["fecha"], df["b1000_icp"], label="ICP (Benchmark)",
+            color=C_ICP, linewidth=1.5, linestyle=":", zorder=2)
+
+    ax.legend(fontsize=8, framealpha=0.9, loc="upper left")
+    ax.set_ylabel("Base 1.000", fontsize=8, color="#555")
+    ax.yaxis.set_major_formatter(mtick.FormatStrFormatter("%.0f"))
+    ax.tick_params(labelsize=7, colors="#555")
+    ax.grid(axis="y", color=C_GRID, linewidth=0.7)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.spines[["left", "bottom"]].set_color("#CCC")
+
+    fig.tight_layout(pad=0.5)
+    return _to_bytes(fig)
+
+
+# ── 2. Tabla de rentabilidades ────────────────────────────────────────────────
+def tabla_rentabilidades_img(metricas_df: pd.DataFrame) -> bytes:
+    """
+    metricas_df: nombre, mensual, trimestral, semestral, anual, ytd
+    """
+    fig, ax = plt.subplots(figsize=(7.5, 1.8), facecolor=C_BG)
+    ax.set_facecolor(C_BG)
+    ax.axis("off")
+
+    col_labels = ["", "Mensual", "Trimestral", "Semestral", "Anual\n(12M)", "YTD"]
+    data = []
+    colors_rows = []
+
+    for _, r in metricas_df.iterrows():
+        row = [
+            r["nombre"],
+            _fmt_pct(r["mensual"]),
+            _fmt_pct(r["trimestral"]),
+            _fmt_pct(r["semestral"]),
+            _fmt_pct(r["anual"]),
+            _fmt_pct(r["ytd"]),
+        ]
+        data.append(row)
+        colors_rows.append(["#FFFFFF"] * 6)
+
+    # Colorear fila del fondo
+    colors_rows[0] = ["#EDF2FA"] * 6
+
+    t = ax.table(
+        cellText=data,
+        colLabels=col_labels,
+        cellLoc="center",
+        loc="center",
+        cellColours=colors_rows,
+    )
+    t.auto_set_font_size(False)
+    t.set_fontsize(8.5)
+    t.scale(1, 1.7)
+
+    # Encabezados
+    for ci in range(len(col_labels)):
+        cell = t[0, ci]
+        cell.set_facecolor(C_FONDO)
+        cell.set_text_props(color="white", fontweight="bold", fontsize=8)
+
+    # Primera columna en negrita
+    for ri in range(1, len(data) + 1):
+        t[ri, 0].set_text_props(fontweight="bold", ha="left")
+
+    fig.tight_layout(pad=0.2)
+    return _to_bytes(fig)
+
+
+# ── 3. Gráfico composición por duración (donut) ───────────────────────────────
+def grafico_composicion_duracion(df_cartera: pd.DataFrame) -> bytes:
+    """
+    df_cartera: duracion, pct
+    """
+    if df_cartera.empty:
+        fig, ax = plt.subplots(figsize=(4, 2.5))
+        ax.text(0.5, 0.5, "Sin datos", ha="center", va="center")
+        ax.axis("off")
+        return _to_bytes(fig)
+
+    dur = df_cartera.groupby("duracion")["pct"].sum()
+    dur = dur[dur > 0]
+
+    COLORES_DUR = ["#003366", "#1A5599", "#4A90D9", "#A8C8F0", "#D0E5F7"]
+
+    fig, ax = plt.subplots(figsize=(4.5, 2.8), facecolor=C_BG)
+    ax.set_facecolor(C_BG)
+
+    wedges, texts, autotexts = ax.pie(
+        dur.values,
+        labels=None,
+        autopct=lambda p: f"{p:.1f}%" if p > 3 else "",
+        colors=COLORES_DUR[:len(dur)],
+        startangle=90,
+        pctdistance=0.75,
+        wedgeprops={"width": 0.55, "edgecolor": "white", "linewidth": 1.5},
+    )
+    for at in autotexts:
+        at.set_fontsize(7.5)
+        at.set_color("white")
+        at.set_fontweight("bold")
+
+    ax.legend(
+        wedges, dur.index.tolist(),
+        loc="center left", bbox_to_anchor=(0.85, 0.5),
+        fontsize=7, frameon=False,
+    )
+    ax.set_title("Por Duración", fontsize=8.5, color="#333", pad=4)
+    fig.tight_layout(pad=0.3)
+    return _to_bytes(fig)
+
+
+# ── 4. Tabla comparación mensual ──────────────────────────────────────────────
+def tabla_comparacion_mensual(df_rentm: pd.DataFrame) -> bytes:
+    """
+    df_rentm: mes, rent_fondo, rent_comp, rent_icp
+    """
+    fig, ax = plt.subplots(figsize=(7.5, 3.2), facecolor=C_BG)
+    ax.set_facecolor(C_BG)
+    ax.axis("off")
+
+    col_labels = ["Mes", "Fondo", "Competencia", "ICP"]
+    data = []
+    cell_colors = []
+
+    for _, r in df_rentm.iterrows():
+        rf = r["rent_fondo"]
+        rc = r["rent_comp"]
+        ri = r["rent_icp"]
+        data.append([r["mes"], _fmt_pct(rf), _fmt_pct(rc), _fmt_pct(ri)])
+
+        # Color verde si fondo supera benchmark, rojo si no
+        if pd.notna(rf) and pd.notna(ri):
+            c_fondo = "#E8F5E9" if rf >= ri else "#FFEBEE"
+        else:
+            c_fondo = "#FFFFFF"
+        cell_colors.append(["#FFFFFF", c_fondo, "#FFFFFF", "#FFFFFF"])
+
+    t = ax.table(
+        cellText=data,
+        colLabels=col_labels,
+        cellLoc="center",
+        loc="center",
+        cellColours=cell_colors,
+    )
+    t.auto_set_font_size(False)
+    t.set_fontsize(8)
+    t.scale(1, 1.45)
+
+    for ci in range(len(col_labels)):
+        cell = t[0, ci]
+        cell.set_facecolor(C_FONDO)
+        cell.set_text_props(color="white", fontweight="bold", fontsize=8)
+
+    fig.tight_layout(pad=0.2)
+    return _to_bytes(fig)

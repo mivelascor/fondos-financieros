@@ -1,110 +1,92 @@
 """
-calculos/rentabilidades.py — Normalización base 1000 y cálculo de rentabilidades.
-Replica exactamente la lógica del Excel template.
+etl/icp_extractor.py — Descarga el ICP desde la API REST del Banco Central de Chile.
 """
+import requests
 import pandas as pd
-import numpy as np
+from config import BCCH_USER, BCCH_PASS, BCCH_SERIE_ICP
 
 
-def normalizar_b1000(serie: pd.Series, fecha_inicio: pd.Timestamp) -> pd.Series:
+def get_icp_eom(desde: str, hasta: str) -> pd.DataFrame:
     """
-    Normaliza una serie de valores cuota a base 1000 desde fecha_inicio.
-    serie: indexed por fecha
+    Descarga la serie del ICP desde el BCCh y retorna el valor de fin de mes.
+    desde / hasta: formato YYYY-MM-DD
+
+    Retorna: fecha, icp
     """
-    serie = serie.sort_index()
-    mask = serie.index >= fecha_inicio
-    if not mask.any():
-        return pd.Series(dtype=float)
-    vc_base = serie[mask].iloc[0]
-    return (serie / vc_base) * 1000
+    url = (
+        "https://si3.bcentral.cl/SieteRestWS/SieteRestWS.ashx"
+        f"?user={BCCH_USER}&pass={BCCH_PASS}"
+        f"&firstdate={desde}&lastdate={hasta}"
+        f"&timeseries={BCCH_SERIE_ICP}&function=GetSeries"
+    )
+    try:
+        r = requests.get(url, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+
+        rows = []
+        for serie in data.get("Series", []):
+            for obs in serie.get("Obs", []):
+                val = obs.get("value", "")
+                if val not in ("", "NaN", None):
+                    rows.append({
+                        "fecha": obs["indexDateString"],
+                        "icp":   float(val)
+                    })
+
+        if not rows:
+            raise ValueError("BCCh no devolvió datos para el ICP")
+
+        df = pd.DataFrame(rows)
+        df["fecha"] = pd.to_datetime(df["fecha"])
+
+    except Exception as e:
+        print(f"[WARN] No se pudo obtener ICP del BCCh: {e}")
+        print("[INFO] Usando ICP desde el Excel template como fallback")
+        df = _icp_desde_excel()
+
+    # Filtrar fin de mes
+    df["anio_mes"] = df["fecha"].dt.to_period("M")
+    df_eom = (
+        df.sort_values("fecha")
+          .groupby("anio_mes")
+          .last()
+          .reset_index()
+          .drop(columns=["anio_mes"])
+    )
+    return df_eom[["fecha", "icp"]]
 
 
-def _ultimo_valor_antes_o_en(serie: pd.Series, fecha: pd.Timestamp):
-    """Retorna el último valor de la serie en o antes de fecha."""
-    mask = serie.index <= fecha
-    if not mask.any():
-        return np.nan
-    return serie[mask].iloc[-1]
-
-
-def rent_periodo(serie_b1000: pd.Series, fecha_fin: pd.Timestamp, meses: int) -> float:
+def _icp_desde_excel() -> pd.DataFrame:
     """
-    Rentabilidad entre (fecha_fin - meses) y fecha_fin.
-    Retorna valor decimal, ej: 0.0059 = 0.59%
+    Fallback: lee el ICP desde la hoja 'Datos ICP (2)' del Excel template.
+    Útil cuando el BCCh no está disponible o las credenciales aún no están configuradas.
     """
-    fecha_ini = fecha_fin - pd.DateOffset(months=meses)
-    v_ini = _ultimo_valor_antes_o_en(serie_b1000, fecha_ini)
-    v_fin = _ultimo_valor_antes_o_en(serie_b1000, fecha_fin)
-    if pd.isna(v_ini) or pd.isna(v_fin) or v_ini == 0:
-        return np.nan
-    return (v_fin / v_ini) - 1
+    import openpyxl
+    from pathlib import Path
 
+    # Busca el Excel en la carpeta templates/
+    xlsx_path = Path(__file__).parent.parent / "templates" / "TEMPLATE_FONDO.xlsx"
+    if not xlsx_path.exists():
+        raise FileNotFoundError(f"No se encontró {xlsx_path} para fallback de ICP")
 
-def rent_ytd(serie_b1000: pd.Series, fecha_fin: pd.Timestamp) -> float:
-    """
-    YTD:
-      - Si mes == 1: desde 31-dic del año anterior
-      - Si mes > 1:  desde 31-ene del año actual
-    """
-    if fecha_fin.month == 1:
-        fecha_base = pd.Timestamp(fecha_fin.year - 1, 12, 31)
-    else:
-        fecha_base = pd.Timestamp(fecha_fin.year, 1, 31)
+    wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
+    ws = wb["Datos ICP (2)"]
 
-    v_base = _ultimo_valor_antes_o_en(serie_b1000, fecha_base)
-    v_fin  = _ultimo_valor_antes_o_en(serie_b1000, fecha_fin)
-    if pd.isna(v_base) or pd.isna(v_fin) or v_base == 0:
-        return np.nan
-    return (v_fin / v_base) - 1
-
-
-def construir_tabla_rentabilidades(
-    b1000_fondo: pd.Series,
-    b1000_comp:  pd.Series,
-    b1000_icp:   pd.Series,
-    fecha_fin:   pd.Timestamp,
-) -> pd.DataFrame:
-    """
-    Construye la tabla de rentabilidades:
-      Filas: Fondo, Competencia, ICP
-      Cols:  mensual, trimestral, semestral, anual, ytd
-    """
-    series = [
-        ("Fondo",       b1000_fondo),
-        ("Competencia", b1000_comp),
-        ("ICP",         b1000_icp),
-    ]
     rows = []
-    for nombre, s in series:
-        rows.append({
-            "nombre":      nombre,
-            "mensual":     rent_periodo(s, fecha_fin, 1),
-            "trimestral":  rent_periodo(s, fecha_fin, 3),
-            "semestral":   rent_periodo(s, fecha_fin, 6),
-            "anual":       rent_periodo(s, fecha_fin, 12),
-            "ytd":         rent_ytd(s, fecha_fin),
-        })
-    return pd.DataFrame(rows)
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        fecha_raw, icp_val = row[0], row[1]
+        if fecha_raw is None or icp_val is None:
+            continue
+        try:
+            # Las fechas en el Excel son números seriales de Excel
+            if isinstance(fecha_raw, (int, float)):
+                fecha = pd.Timestamp("1899-12-30") + pd.Timedelta(days=int(fecha_raw))
+            else:
+                fecha = pd.Timestamp(fecha_raw)
+            rows.append({"fecha": fecha, "icp": float(icp_val)})
+        except Exception:
+            continue
 
-
-def construir_rentabilidades_mensuales(
-    b1000_fondo: pd.Series,
-    b1000_comp:  pd.Series,
-    b1000_icp:   pd.Series,
-    fecha_fin:   pd.Timestamp,
-    n_meses:     int = 12,
-) -> pd.DataFrame:
-    """
-    Tabla de rentabilidades mes a mes para los últimos n_meses.
-    Retorna: mes (str), rent_fondo, rent_comp, rent_icp
-    """
-    rows = []
-    for i in range(n_meses, 0, -1):
-        f2 = fecha_fin - pd.DateOffset(months=i - 1)
-        rows.append({
-            "mes":        f2.strftime("%b %Y"),
-            "rent_fondo": rent_periodo(b1000_fondo, f2, 1),
-            "rent_comp":  rent_periodo(b1000_comp,  f2, 1),
-            "rent_icp":   rent_periodo(b1000_icp,   f2, 1),
-        })
+    wb.close()
     return pd.DataFrame(rows)

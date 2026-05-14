@@ -1,57 +1,98 @@
-name: Generar folletos mensuales
+"""
+generador/pptx_builder.py — Construye el PPTX de cada fondo a partir del template.
+Reemplaza textos variables e inserta las 4 imágenes donde estaban los OLE.
+"""
+from pptx import Presentation
+from pptx.util import Pt
+from io import BytesIO
+from pathlib import Path
+import pandas as pd
+from config import TEMPLATE_PPTX, OLE_POSITIONS
 
-on:
-  repository_dispatch:
-    types: [generar_folletos]
-  workflow_dispatch:
-    inputs:
-      comentario_clp:
-        description: 'Comentario fondos CLP'
-        required: true
-        default: ''
-      comentario_usd:
-        description: 'Comentario fondos USD'
-        required: true
-        default: ''
 
-jobs:
-  generar:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout repositorio
-        uses: actions/checkout@v4
+def _reemplazar_texto(slide, nombre_shape: str, texto: str):
+    """Reemplaza el texto de un shape por nombre, preservando el formato."""
+    for shape in slide.shapes:
+        if shape.name == nombre_shape and shape.has_text_frame:
+            tf = shape.text_frame
+            for para in tf.paragraphs:
+                for run in para.runs:
+                    run.text = ""
+            if tf.paragraphs and tf.paragraphs[0].runs:
+                tf.paragraphs[0].runs[0].text = texto
+            elif tf.paragraphs:
+                tf.paragraphs[0].text = texto
+            return
 
-      - name: Configurar Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
 
-      - name: Instalar dependencias Python
-        run: pip install -r scripts/requirements.txt
+def _insertar_imagen(slide, img_bytes: bytes, pos: dict):
+    """Inserta imagen PNG en la posición exacta (EMU) donde estaba el OLE."""
+    stream = BytesIO(img_bytes)
+    slide.shapes.add_picture(
+        stream,
+        left=pos["left"], top=pos["top"],
+        width=pos["width"], height=pos["height"],
+    )
 
-      - name: Instalar LibreOffice
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y libreoffice libreoffice-impress
 
-      - name: Ejecutar generador de folletos
-        env:
-          SQL_CONN:       ${{ secrets.SQL_CONN }}
-          BCCH_USER:      ${{ secrets.BCCH_USER }}
-          BCCH_PASS:      ${{ secrets.BCCH_PASS }}
-          GH_TOKEN:       ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO:        ${{ github.repository }}
-          COMENTARIO_CLP: ${{ github.event.client_payload.comentario_clp || inputs.comentario_clp }}
-          COMENTARIO_USD: ${{ github.event.client_payload.comentario_usd || inputs.comentario_usd }}
-        run: |
-          cd scripts
-          python main.py "$COMENTARIO_CLP" "$COMENTARIO_USD"
+def generar_pptx(
+    nombre_fondo:   str,
+    periodo_str:    str,
+    comentario_pm:  str,
+    img_evolucion:  bytes,
+    img_tabla_rent: bytes,
+    img_composicion:bytes,
+    img_tabla_comp: bytes,
+    info_fondo:     dict,
+    out_path:       Path,
+) -> Path:
+    """
+    Genera el PPTX completo de un fondo.
+    Retorna la ruta del archivo guardado.
+    """
+    prs   = Presentation(str(TEMPLATE_PPTX))
+    slide0 = prs.slides[0]   # Slide principal
+    slide1 = prs.slides[1]   # Slide composición / disclaimer
 
-      - name: Commit y push folletos generados
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add folletos/
-          git diff --staged --quiet || git commit -m "Folletos $(date +'%Y-%m') - generación automática"
-          git push
+    # ── Slide 0: textos ───────────────────────────────────────────────────────
+
+    # Nombre del fondo (solo la parte después de "FIP VANTRUST ")
+    nombre_corto = nombre_fondo.replace("FIP VANTRUST ", "")
+    _reemplazar_texto(slide0, "CuadroTexto 6", nombre_corto)
+
+    # Comentario del PM
+    _reemplazar_texto(slide0, "CuadroTexto 13", comentario_pm)
+
+    # Bloque de información general (shape[18] = valores, shape[17] = etiquetas)
+    shape_vals = slide0.shapes[18]
+    tf = shape_vals.text_frame
+    valores_info = [
+        info_fondo.get("administradora", "Vantrust Gestion Patrimonial S.A."),
+        info_fondo.get("rut",            "76,637,334-8"),
+        info_fondo.get("moneda",         "CLP"),
+        info_fondo.get("tipo",           "Fondo de Inversión Privado"),
+        info_fondo.get("fecha_inicio",   ""),
+        info_fondo.get("benchmark",      "Índice Cámara Promedio (ICP)"),
+        "Sí",
+        info_fondo.get("plazo_rescate",  "A más tardar 15 días corridos"),
+    ]
+    for i, para in enumerate(tf.paragraphs):
+        if i < len(valores_info):
+            if para.runs:
+                para.runs[0].text = valores_info[i]
+            else:
+                para.text = valores_info[i]
+
+    # ── Slide 0: imágenes (reemplazan los 4 OLE) ──────────────────────────────
+    _insertar_imagen(slide0, img_tabla_rent,  OLE_POSITIONS["tabla_rentabilidad"])
+    _insertar_imagen(slide0, img_evolucion,   OLE_POSITIONS["grafico_evolucion"])
+    _insertar_imagen(slide0, img_composicion, OLE_POSITIONS["grafico_composicion"])
+    _insertar_imagen(slide0, img_tabla_comp,  OLE_POSITIONS["tabla_comparacion"])
+
+    # ── Slide 1: nombre del fondo ─────────────────────────────────────────────
+    _reemplazar_texto(slide1, "CuadroTexto 4", nombre_corto)
+
+    # Guardar
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    prs.save(str(out_path))
+    return out_path
