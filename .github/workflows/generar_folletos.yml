@@ -60,4 +60,10 @@ jobs:
 
       - name: Commit y push folletos al repo
         run: |
-          git config user.name "githu
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git reset --soft origin/main
+          git add folletos/
+          git diff --staged --quiet || git commit -m "Folletos $(date +'%Y-%m') - generacion automatica"
+          git push origin main
