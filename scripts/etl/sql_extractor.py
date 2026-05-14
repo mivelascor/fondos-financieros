@@ -1,15 +1,3 @@
-"""
-etl/sql_extractor.py — Obtiene valores cuota desde la API REST interna.
-
-API: POST https://claudeods.vantrustcapital.cl/query
-     Body: {"Sql": "SELECT ..."}
-
-Tabla: PUBLICADOR_PRECIO (base GPIVANTRUST_CB)
-  FECHA       → fecha del valor cuota
-  NEMOTECNICO → nombre del fondo
-  COD_MONEDA  → moneda
-  PRECIO      → valor cuota
-"""
 import requests
 import pandas as pd
 from datetime import date, timedelta
@@ -59,20 +47,19 @@ def get_valores_cuota_eom() -> pd.DataFrame:
 
     sql = f"""
         SELECT
-            FECHA       AS fecha,
-            NEMOTECNICO AS fondo,
-            COD_MONEDA  AS moneda,
-            PRECIO      AS valor_cuota
-        FROM PUBLICADOR_PRECIO
-        WHERE FECHA >= '{desde}'
-          AND PRECIO > 0
-          AND NEMOTECNICO IN ({FONDOS_QUERY})
-        ORDER BY FECHA ASC
+            FECHA_CIERRE AS fecha,
+            EMPRESA      AS fondo,
+            VALOR_CUOTA  AS valor_cuota
+        FROM ODS.VALORES_CUOTA_GPI
+        WHERE FECHA_CIERRE >= '{desde}'
+          AND VALOR_CUOTA > 0
+          AND EMPRESA IN ({FONDOS_QUERY})
+        ORDER BY FECHA_CIERRE ASC
     """
-    print("    Consultando PUBLICADOR_PRECIO...")
+    print("    Consultando ODS.VALORES_CUOTA_GPI...")
     rows = _query(sql)
     if not rows:
-        raise ValueError("La API no retornó datos de valores cuota.")
+        raise ValueError("La API no retorno datos de valores cuota.")
 
     df = pd.DataFrame(rows)
     df["fecha"]       = pd.to_datetime(df["fecha"])
