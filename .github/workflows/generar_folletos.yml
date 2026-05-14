@@ -47,7 +47,7 @@ jobs:
           cd scripts
           python main.py "$COMENTARIO_CLP" "$COMENTARIO_USD"
 
-- name: Commit y push folletos al repo
+      - name: Commit y push folletos al repo
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
