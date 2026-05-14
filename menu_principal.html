@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Menú Principal — Fondos Financieros</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .container {
+      text-align: center;
+      padding: 40px 20px;
+      max-width: 600px;
+      width: 100%;
+    }
+    h1 { font-size: 2.5rem; margin-bottom: 10px; color: #58a6ff; }
+    p  { color: #8b949e; margin-bottom: 48px; font-size: 1rem; }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 14px;
+      padding: 40px 24px;
+      text-decoration: none;
+      color: #e6edf3;
+      transition: all 0.2s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      cursor: pointer;
+    }
+    .card:hover {
+      border-color: #58a6ff;
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(88,166,255,0.15);
+    }
+    .card .icon { font-size: 2.8rem; }
+    .card h2 { font-size: 1.2rem; font-weight: 600; }
+    .card p {
+      font-size: 0.85rem;
+      color: #8b949e;
+      margin: 0;
+    }
+    @media (max-width: 480px) {
+      .grid { grid-template-columns: 1fr; }
+      h1 { font-size: 1.8rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Fondos Financieros</h1>
+    <p>¿Qué deseas hacer?</p>
+    <div class="grid">
+      <a class="card" href="admin.html">
+        <div class="icon">🗂️</div>
+        <h2>Generar Folletos</h2>
+        <p>Sube los datos del mes y genera los 24 folletos automáticamente</p>
+      </a>
+      <a class="card" href="MenuFF.html">
+        <div class="icon">📊</div>
+        <h2>Menú de Fondos</h2>
+        <p>Consulta y descarga folletos de cada fondo por mes</p>
+      </a>
+    </div>
+  </div>
+</body>
+</html>

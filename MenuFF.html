@@ -1,69 +1,236 @@
-"""
-etl/sql_extractor.py — Extrae datos desde SQL Server.
-Lee valores cuota diarios y composición de cartera.
-"""
-import pandas as pd
-from sqlalchemy import create_engine, text
-from config import SQL_CONN, TABLA_VALORES_CUOTA, TABLA_CARTERA
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fondos Financieros</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0d1117; color: #e6edf3;
+      display: flex; justify-content: center;
+      align-items: flex-start; min-height: 100vh; padding: 40px 20px;
+    }
+    .container { text-align: center; width: 100%; max-width: 960px; }
+    .back { color: #58a6ff; text-decoration: none; font-size: 13px;
+            display: inline-block; margin-bottom: 20px; transition: 0.2s; }
+    .back:hover { color: #79c0ff; }
+    h1 { font-size: 2.5rem; margin-bottom: 8px; color: #58a6ff; }
+    .subtitle { color: #8b949e; margin-bottom: 28px; }
+    .search-container {
+      margin-bottom: 32px; display: flex;
+      justify-content: center; gap: 10px; flex-wrap: wrap;
+    }
+    .search-container input {
+      padding: 10px 16px; width: 280px; border-radius: 8px;
+      border: 1px solid #30363d; background: #161b22;
+      color: #e6edf3; font-size: 14px;
+    }
+    .search-container input:focus { outline: none; border-color: #58a6ff; }
+    .search-container button {
+      padding: 10px 18px; border: none; border-radius: 8px;
+      background: #58a6ff; color: #0d1117; font-weight: bold;
+      cursor: pointer; transition: 0.2s;
+    }
+    .search-container button:hover { background: #79c0ff; }
+    .grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+      gap: 16px; align-items: stretch;
+    }
+    .card {
+      background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+      padding: 22px 16px; text-decoration: none; color: #e6edf3;
+      transition: all 0.2s; display: flex; justify-content: center;
+      align-items: center; text-align: center; min-height: 90px;
+    }
+    .card:hover {
+      border-color: #58a6ff; transform: translateY(-3px);
+      box-shadow: 0 8px 24px rgba(88,166,255,0.15);
+    }
+    .card h2 { font-size: 0.88rem; line-height: 1.4; font-weight: 600; }
+    /* Descargas */
+    .downloads-section {
+      margin-top: 48px; padding: 28px;
+      background: #161b22; border: 1px solid #30363d; border-radius: 14px;
+    }
+    .downloads-section h3 { color: #58a6ff; margin-bottom: 20px; font-size: 1rem; }
+    .downloads-row {
+      display: flex; gap: 14px; justify-content: center;
+      flex-wrap: wrap; margin-bottom: 20px;
+    }
+    .download-btn {
+      padding: 11px 20px; border-radius: 10px; background: #58a6ff;
+      color: #0d1117; border: none; font-weight: bold;
+      font-size: 13px; cursor: pointer; transition: 0.2s;
+    }
+    .download-btn:hover { background: #79c0ff; }
+    .download-btn.secondary {
+      background: #21262d; color: #e6edf3; border: 1px solid #30363d;
+    }
+    .download-btn.secondary:hover { border-color: #58a6ff; color: #58a6ff; }
+    /* Historial por mes */
+    .historial-row {
+      display: flex; gap: 10px; justify-content: center;
+      align-items: center; flex-wrap: wrap;
+      margin-top: 16px; padding-top: 16px; border-top: 1px solid #30363d;
+    }
+    .historial-row span { color: #8b949e; font-size: 13px; }
+    .historial-row select {
+      padding: 9px 14px; border-radius: 8px; border: 1px solid #30363d;
+      background: #0d1117; color: #e6edf3; font-size: 13px; cursor: pointer;
+    }
+    .historial-row select:focus { outline: none; border-color: #58a6ff; }
+    .admin-link {
+      display: inline-block; margin-top: 28px; color: #8b949e;
+      font-size: 12px; text-decoration: none; transition: 0.2s;
+    }
+    .admin-link:hover { color: #58a6ff; }
+    #meses-loading { color: #8b949e; font-size: 12px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a class="back" href="menu_principal.html">← Volver al menú principal</a>
+    <h1>Fondos Financieros</h1>
+    <p class="subtitle">Selecciona un fondo para ver sus documentos</p>
 
+    <div class="search-container">
+      <input list="fondosList" id="searchInput" placeholder="Buscar fondo...">
+      <datalist id="fondosList">
+        <option value="LIQUIDEZ ACTIVA"><option value="LIQUIDEZ ALTO APORTE">
+        <option value="LIQUIDEZ ALTO CAPITAL"><option value="LIQUIDEZ ALTO MONTO">
+        <option value="LIQUIDEZ CAJA"><option value="LIQUIDEZ CONTINUA">
+        <option value="LIQUIDEZ CORRIENTE"><option value="LIQUIDEZ CORTO PLAZO">
+        <option value="LIQUIDEZ DISPONIBLE I"><option value="LIQUIDEZ DOLAR">
+        <option value="LIQUIDEZ DOLAR CAJA"><option value="LIQUIDEZ EFECTIVO">
+        <option value="LIQUIDEZ FLEXIBLE"><option value="LIQUIDEZ I">
+        <option value="LIQUIDEZ LOCAL"><option value="LIQUIDEZ MONETARIO I">
+        <option value="LIQUIDEZ PERMANENTE"><option value="LIQUIDEZ PLUS">
+        <option value="LIQUIDEZ PRESENTE"><option value="LIQUIDEZ RECURRENTE">
+        <option value="LIQUIDEZ RENDIMIENTO"><option value="LIQUIDEZ RESERVA DOLAR">
+        <option value="LIQUIDEZ SENCILLO"><option value="LIQUIDEZ TEMPORAL">
+      </datalist>
+      <button onclick="buscarFondos()">Buscar</button>
+    </div>
 
-def get_engine():
-    return create_engine(SQL_CONN)
+    <div class="grid" id="fondosGrid">
+      <a class="card" href="O1FipVantrustLiquidezActiva.html"><h2>FIP VANTRUST LIQUIDEZ ACTIVA</h2></a>
+      <a class="card" href="O2FipVantrustLiquidezAltoAporte.html"><h2>FIP VANTRUST LIQUIDEZ ALTO APORTE</h2></a>
+      <a class="card" href="O3FipVantrustLiquidezAltoCapital.html"><h2>FIP VANTRUST LIQUIDEZ ALTO CAPITAL</h2></a>
+      <a class="card" href="O4FipVantrustLiquidezAltoMonto.html"><h2>FIP VANTRUST LIQUIDEZ ALTO MONTO</h2></a>
+      <a class="card" href="O5FipVantrustLiquidezCaja.html"><h2>FIP VANTRUST LIQUIDEZ CAJA</h2></a>
+      <a class="card" href="O6FipVantrustLiquidezContinua.html"><h2>FIP VANTRUST LIQUIDEZ CONTINUA</h2></a>
+      <a class="card" href="O7FipVantrustLiquidezCorriente.html"><h2>FIP VANTRUST LIQUIDEZ CORRIENTE</h2></a>
+      <a class="card" href="O8FipVantrustLiquidezCortoPlazo.html"><h2>FIP VANTRUST LIQUIDEZ CORTO PLAZO</h2></a>
+      <a class="card" href="O9FipVantrustLiquidezDisponibleI.html"><h2>FIP VANTRUST LIQUIDEZ DISPONIBLE I</h2></a>
+      <a class="card" href="O10FipVantrustLiquidezDolar.html"><h2>FIP VANTRUST LIQUIDEZ DOLAR</h2></a>
+      <a class="card" href="O11FipVantrustLiquidezDolarCaja.html"><h2>FIP VANTRUST LIQUIDEZ DOLAR CAJA</h2></a>
+      <a class="card" href="O12FipVantrustLiquidezEfectivo.html"><h2>FIP VANTRUST LIQUIDEZ EFECTIVO</h2></a>
+      <a class="card" href="O13FipVantrustLiquidezFlexible.html"><h2>FIP VANTRUST LIQUIDEZ FLEXIBLE</h2></a>
+      <a class="card" href="O14FipVantrustLiquidezI.html"><h2>FIP VANTRUST LIQUIDEZ I</h2></a>
+      <a class="card" href="O15FipVantrustLiquidezLocal.html"><h2>FIP VANTRUST LIQUIDEZ LOCAL</h2></a>
+      <a class="card" href="O16FipVantrustLiquidezMonetarioI.html"><h2>FIP VANTRUST LIQUIDEZ MONETARIO I</h2></a>
+      <a class="card" href="O17FipVantrustLiquidezPermanente.html"><h2>FIP VANTRUST LIQUIDEZ PERMANENTE</h2></a>
+      <a class="card" href="O18FipVantrustLiquidezPlus.html"><h2>FIP VANTRUST LIQUIDEZ PLUS</h2></a>
+      <a class="card" href="O19FipVantrustLiquidezPresente.html"><h2>FIP VANTRUST LIQUIDEZ PRESENTE</h2></a>
+      <a class="card" href="O20FipVantrustLiquidezRecurrente.html"><h2>FIP VANTRUST LIQUIDEZ RECURRENTE</h2></a>
+      <a class="card" href="O21FipVantrustLiquidezRendimiento.html"><h2>FIP VANTRUST LIQUIDEZ RENDIMIENTO</h2></a>
+      <a class="card" href="O22FipVantrustLiquidezReservaDolar.html"><h2>FIP VANTRUST LIQUIDEZ RESERVA DOLAR</h2></a>
+      <a class="card" href="O23FipVantrustLiquidezSencillo.html"><h2>FIP VANTRUST LIQUIDEZ SENCILLO</h2></a>
+      <a class="card" href="O24FipVantrustLiquidezTemporal.html"><h2>FIP VANTRUST LIQUIDEZ TEMPORAL</h2></a>
+    </div>
 
+    <div class="downloads-section">
+      <h3>📥 Descargas masivas</h3>
+      <div class="downloads-row">
+        <button class="download-btn secondary" onclick="descargarReglamentos()">
+          📄 Todos los Reglamentos Internos
+        </button>
+        <button class="download-btn" onclick="descargarFolletos()">
+          📑 Folletos del mes más reciente
+        </button>
+      </div>
+      <div class="historial-row">
+        <span>Mes anterior:</span>
+        <select id="selectMes">
+          <option value="">Cargando meses...</option>
+        </select>
+        <button class="download-btn secondary" onclick="descargarMesHistorial()">
+          Descargar ZIP
+        </button>
+      </div>
+      <div id="meses-loading"></div>
+    </div>
 
-def get_valores_cuota_eom() -> pd.DataFrame:
-    """
-    Lee valores cuota diarios y filtra el último día de cada mes.
-    Retorna: fecha, fondo, moneda, valor_cuota
-    """
-    engine = get_engine()
-    query = f"""
-        SELECT
-            FECHA,
-            NEMOTECNICO  AS fondo,
-            COD_MONEDA   AS moneda,
-            PRECIO       AS valor_cuota
-        FROM {TABLA_VALORES_CUOTA}
-        WHERE FECHA >= DATEADD(MONTH, -14, GETDATE())
-        ORDER BY FECHA ASC
-    """
-    df = pd.read_sql(query, engine, parse_dates=["FECHA"])
-    df.rename(columns={"FECHA": "fecha"}, inplace=True)
+    <a class="admin-link" href="menu_principal.html">← Menú principal</a>
+  </div>
 
-    # Filtrar último día disponible de cada mes por fondo
-    df["anio_mes"] = df["fecha"].dt.to_period("M")
-    df_eom = (
-        df.sort_values("fecha")
-          .groupby(["fondo", "anio_mes"])
-          .last()
-          .reset_index()
-          .drop(columns=["anio_mes"])
-    )
-    df_eom["fondo"] = df_eom["fondo"].str.strip()
-    return df_eom[["fecha", "fondo", "moneda", "valor_cuota"]]
+  <script>
+    const REPO   = "mivelascor/fondos-financieros";
+    const BRANCH = "main";
+    const input  = document.getElementById("searchInput");
 
+    function buscarFondos() {
+      const filtro = input.value.toLowerCase();
+      document.querySelectorAll(".card").forEach(card => {
+        card.style.display =
+          card.innerText.toLowerCase().includes(filtro) || !filtro ? "flex" : "none";
+      });
+    }
+    input.addEventListener("keypress", e => { if (e.key === "Enter") buscarFondos(); });
+    input.addEventListener("input",    () => { if (!input.value) buscarFondos(); });
 
-def get_cartera(fecha_cierre: str) -> pd.DataFrame:
-    """
-    Lee composición de cartera para la fecha de cierre dada (YYYY-MM-DD).
-    Retorna: fondo, instrumento, moneda, duracion, monto, pct
-    """
-    engine = get_engine()
-    query = f"""
-        SELECT
-            DSC_CUENTA                          AS fondo,
-            SUB_CLASE                           AS instrumento,
-            COD_MONEDA                          AS moneda,
-            TRAMO                               AS duracion,
-            VALOR_PRESENTE_MERCADO_MON_CTA      AS monto
-        FROM {TABLA_CARTERA}
-        WHERE FECHA_CIERRE = '{fecha_cierre}'
-    """
-    df = pd.read_sql(query, engine)
-    df["fondo"] = df["fondo"].str.strip()
+    async function cargarMeses() {
+      try {
+        const resp = await fetch(
+          `https://api.github.com/repos/${REPO}/contents/folletos`,
+          { headers: { "Accept": "application/vnd.github+json" } }
+        );
+        if (!resp.ok) return;
+        const items = await resp.json();
+        const meses = items
+          .filter(i => i.type === "dir" && /^\d{4}-\d{2}$/.test(i.name))
+          .map(i => i.name).sort().reverse();
+        const sel = document.getElementById("selectMes");
+        if (meses.length === 0) {
+          sel.innerHTML = '<option value="">Sin folletos aún</option>';
+          return;
+        }
+        sel.innerHTML = meses.map(m => `<option value="${m}">${m}</option>`).join("");
+      } catch(e) {
+        document.getElementById("meses-loading").textContent = "No se pudieron cargar los meses.";
+      }
+    }
 
-    # Calcular porcentaje sobre el total de cada fondo
-    totales = df.groupby("fondo")["monto"].sum().rename("total")
-    df = df.merge(totales, on="fondo")
-    df["pct"] = df["monto"] / df["total"]
-    return df[["fondo", "instrumento", "moneda", "duracion", "monto", "pct"]]
+    async function descargarReglamentos() {
+      const resp = await fetch(`https://api.github.com/repos/${REPO}/contents/regl.int`);
+      const data = await resp.json();
+      data.filter(f => f.name.endsWith(".pdf")).forEach((file, i) => {
+        setTimeout(() => {
+          const a = document.createElement("a");
+          a.href = file.download_url; a.download = file.name; a.click();
+        }, i * 400);
+      });
+    }
+
+    function descargarFolletos() {
+      const a = document.createElement("a");
+      a.href = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/folletos/latest.zip`;
+      a.download = "folletos_ultimo_mes.zip";
+      a.click();
+    }
+
+    function descargarMesHistorial() {
+      const mes = document.getElementById("selectMes").value;
+      if (!mes) { alert("Selecciona un mes"); return; }
+      const a = document.createElement("a");
+      a.href = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/folletos/${mes}/folletos_${mes}.zip`;
+      a.download = `folletos_${mes}.zip`;
+      a.click();
+    }
+
+    cargarMeses();
+  </script>
+</body>
+</html>

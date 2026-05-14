@@ -1,98 +1,161 @@
-"""
-etl/cmf_scraper.py — Scraping de valores cuota desde cmfchile.cl
-"""
-import requests
-import pandas as pd
-from bs4 import BeautifulSoup
-from config import CMF_COMP_CLP, CMF_COMP_USD
-
-
-CMF_URL = "https://www.cmfchile.cl/institucional/mercados/entidad.php"
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
-}
-
-
-def _fetch_cuotas_cmf(rut: str, row: str) -> pd.DataFrame:
-    """
-    Descarga la tabla de valores cuota de un fondo en la CMF.
-    Retorna DataFrame con columnas: fecha, valor_cuota
-    """
-    params = {
-        "mercado":    "V",
-        "rut":        rut,
-        "grupo":      "",
-        "tipoentidad":"RGFMU",
-        "row":        row,
-        "vig":        "VI",
-        "control":    "svs",
-        "pestania":   "7",
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FIP VANTRUST LIQUIDEZ ACTIVA</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', sans-serif; background: #0d1117;
+      color: #e6edf3; display: flex; justify-content: center;
+      align-items: flex-start; min-height: 100vh; padding: 40px 20px;
     }
-    try:
-        r = requests.get(CMF_URL, params=params, headers=HEADERS, timeout=45)
-        r.raise_for_status()
-    except Exception as e:
-        print(f"[WARN] CMF no respondió para rut={rut}: {e}")
-        return pd.DataFrame(columns=["fecha", "valor_cuota"])
+    .container { text-align: center; padding: 0; max-width: 600px; width: 100%; }
+    .back { color: #58a6ff; text-decoration: none; font-size: 13px;
+             display: inline-block; margin-bottom: 20px; transition: 0.2s; }
+    .back:hover { color: #79c0ff; }
+    .badge {
+      display: inline-block; padding: 4px 12px; border-radius: 20px;
+      font-size: 11px; font-weight: bold; background: #1c2d3e;
+      color: #58a6ff; border: 1px solid #2d6a9f; margin-bottom: 12px;
+    }
+    h1 { font-size: 1.8rem; margin-bottom: 10px; color: #58a6ff; line-height: 1.3; }
+    p  { color: #8b949e; margin-bottom: 32px; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+    .card {
+      background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+      padding: 28px 20px; text-decoration: none; color: #e6edf3;
+      transition: all 0.2s; display: flex; flex-direction: column;
+      align-items: center; cursor: pointer;
+    }
+    .card:hover {
+      border-color: #58a6ff; transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(88,166,255,0.15);
+    }
+    .card.disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+    .icon { font-size: 2rem; margin-bottom: 10px; }
+    .card h2 { font-size: 1rem; }
+    .mes-label { font-size: 11px; color: #8b949e; margin-top: 6px; }
+    .center-box { display: flex; justify-content: center; margin-top: 20px; }
+    .historial-btn { padding: 15px; min-width: 180px; cursor: pointer; }
+    .historial-container {
+      margin-top: 20px; display: none; animation: fadeIn 0.3s ease;
+      background: #161b22; border: 1px solid #30363d;
+      border-radius: 12px; padding: 20px;
+    }
+    .select-group {
+      display: flex; gap: 10px; justify-content: center;
+      margin-bottom: 15px; flex-wrap: wrap;
+    }
+    select {
+      padding: 10px; border-radius: 8px; border: 1px solid #30363d;
+      background: #0d1117; color: #e6edf3; font-size: 13px; cursor: pointer;
+    }
+    select:focus { outline: none; border-color: #58a6ff; }
+    .download-btn {
+      padding: 10px 20px; border-radius: 8px; border: none;
+      background: #58a6ff; color: #0d1117; cursor: pointer;
+      font-size: 13px; font-weight: bold; transition: 0.2s;
+    }
+    .download-btn:hover { background: #79c0ff; }
+    @keyframes fadeIn { from { opacity:0; transform: translateY(-5px); } to { opacity:1; transform: translateY(0); } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a class="back" href="MenuFF.html">← Volver al menú de Fondos</a>
+    <div class="badge">FIP VANTRUST</div>
+    <h1>FIP VANTRUST LIQUIDEZ ACTIVA</h1>
+    <p>Descarga los archivos disponibles</p>
 
-    soup = BeautifulSoup(r.text, "html.parser")
+    <div class="grid">
+      <a class="card" href="regl.int/76637334-8 FIP LIQUIDEZ ACTIVA.pdf" download>
+        <div class="icon">📄</div>
+        <h2>Reglamento Interno</h2>
+      </a>
+      <a class="card" id="btnFolletoActual" href="#" download>
+        <div class="icon">📑</div>
+        <h2>Folleto Comercial</h2>
+        <div class="mes-label" id="mesLabel">Cargando...</div>
+      </a>
+    </div>
 
-    # La CMF muestra los datos en una tabla con class "tabla" o similar
-    tabla = soup.find("table", {"class": "tabla"})
-    if not tabla:
-        # Intentar con cualquier tabla que tenga datos numéricos
-        tablas = soup.find_all("table")
-        for t in tablas:
-            headers = [th.get_text(strip=True) for th in t.find_all("th")]
-            if any("cuota" in h.lower() or "valor" in h.lower() for h in headers):
-                tabla = t
-                break
+    <div class="center-box">
+      <div class="card historial-btn" onclick="toggleHistorial()">
+        <div class="icon">🗂️</div>
+        <h2 style="font-size:0.9rem;">Historial de Folletos</h2>
+      </div>
+    </div>
 
-    if not tabla:
-        print(f"[WARN] No se encontró tabla de valores cuota para rut={rut}")
-        return pd.DataFrame(columns=["fecha", "valor_cuota"])
+    <div class="historial-container" id="historial">
+      <div class="select-group">
+        <select id="selectMesHistorial">
+          <option value="">Selecciona un mes...</option>
+        </select>
+      </div>
+      <button class="download-btn" onclick="descargarHistorial()">
+        Descargar Folleto
+      </button>
+    </div>
+  </div>
 
-    rows_data = []
-    for tr in tabla.find_all("tr")[1:]:  # saltar encabezado
-        tds = [td.get_text(strip=True) for td in tr.find_all("td")]
-        if len(tds) >= 2:
-            try:
-                fecha = pd.to_datetime(tds[0], dayfirst=True, errors="coerce")
-                vc    = float(tds[1].replace(".", "").replace(",", "."))
-                if pd.notna(fecha) and vc > 0:
-                    rows_data.append({"fecha": fecha, "valor_cuota": vc})
-            except Exception:
-                continue
+  <script>
+    const REPO       = "mivelascor/fondos-financieros";
+    const BRANCH     = "main";
+    const NOMBRE_PDF = "FIP_VANTRUST_LIQUIDEZ_ACTIVA.pdf";
 
-    if not rows_data:
-        print(f"[WARN] Tabla vacía para rut={rut}")
-        return pd.DataFrame(columns=["fecha", "valor_cuota"])
+    async function cargarUltimo() {
+      try {
+        const resp = await fetch(
+          `https://api.github.com/repos/${REPO}/contents/folletos`,
+          { headers: { "Accept": "application/vnd.github+json" } }
+        );
+        if (!resp.ok) throw new Error("sin datos");
+        const items = await resp.json();
+        const meses = items
+          .filter(i => i.type === "dir" && /^\d{4}-\d{2}$/.test(i.name))
+          .map(i => i.name).sort().reverse();
 
-    df = pd.DataFrame(rows_data)
-    df["anio_mes"] = df["fecha"].dt.to_period("M")
-    df_eom = (
-        df.sort_values("fecha")
-          .groupby("anio_mes")
-          .last()
-          .reset_index()
-          .drop(columns=["anio_mes"])
-    )
-    return df_eom[["fecha", "valor_cuota"]]
+        const sel = document.getElementById("selectMesHistorial");
+        if (meses.length === 0) {
+          document.getElementById("mesLabel").textContent = "No disponible aún";
+          document.getElementById("btnFolletoActual").classList.add("disabled");
+          return;
+        }
 
+        // Folleto más reciente
+        const ultimo = meses[0];
+        const url = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/folletos/${ultimo}/${NOMBRE_PDF}`;
+        document.getElementById("btnFolletoActual").href = url;
+        document.getElementById("mesLabel").textContent = ultimo;
 
-def get_competencia_clp() -> pd.DataFrame:
-    """Retorna valores cuota fin de mes del fondo competencia CLP."""
-    df = _fetch_cuotas_cmf(CMF_COMP_CLP["rut"], CMF_COMP_CLP["row"])
-    df["fondo_comp"] = CMF_COMP_CLP["nombre"]
-    return df
+        // Llenar selector historial
+        sel.innerHTML = meses
+          .map(m => `<option value="${m}">${m}</option>`)
+          .join("");
+      } catch(e) {
+        document.getElementById("mesLabel").textContent = "No disponible";
+        document.getElementById("btnFolletoActual").classList.add("disabled");
+      }
+    }
 
+    function toggleHistorial() {
+      const h = document.getElementById("historial");
+      h.style.display = h.style.display === "block" ? "none" : "block";
+    }
 
-def get_competencia_usd() -> pd.DataFrame:
-    """Retorna valores cuota fin de mes del fondo competencia USD."""
-    df = _fetch_cuotas_cmf(CMF_COMP_USD["rut"], CMF_COMP_USD["row"])
-    df["fondo_comp"] = CMF_COMP_USD["nombre"]
-    return df
+    function descargarHistorial() {
+      const mes = document.getElementById("selectMesHistorial").value;
+      if (!mes) { alert("Selecciona un mes"); return; }
+      const url = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/folletos/${mes}/${NOMBRE_PDF}`;
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${NOMBRE_PDF.replace(".pdf","")} ${mes}.pdf`;
+      a.click();
+    }
+
+    cargarUltimo();
+  </script>
+</body>
+</html>

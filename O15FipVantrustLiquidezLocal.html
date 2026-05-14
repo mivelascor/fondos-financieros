@@ -4,227 +4,105 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>FIP VANTRUST LIQUIDEZ LOCAL</title>
-
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-
     body {
-      font-family: 'Segoe UI', sans-serif;
-      background: #0d1117;
-      color: #e6edf3;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
+      font-family: 'Segoe UI', sans-serif; background: #0d1117;
+      color: #e6edf3; display: flex; justify-content: center;
+      align-items: flex-start; min-height: 100vh; padding: 40px 20px;
     }
-
-    .container {
-      text-align: center;
-      padding: 40px;
-      max-width: 600px;
-      width: 100%;
+    .container { text-align: center; padding: 0; max-width: 600px; width: 100%; }
+    .back { color: #58a6ff; text-decoration: none; font-size: 13px;
+             display: inline-block; margin-bottom: 20px; transition: 0.2s; }
+    .back:hover { color: #79c0ff; }
+    .badge {
+      display: inline-block; padding: 4px 12px; border-radius: 20px;
+      font-size: 11px; font-weight: bold; background: #1c2d3e;
+      color: #58a6ff; border: 1px solid #2d6a9f; margin-bottom: 12px;
     }
-
-    h1 {
-      font-size: 2rem;
-      margin-bottom: 10px;
-      color: #58a6ff;
-      line-height: 1.3;
-    }
-
-    p {
-      color: #8b949e;
-      margin-bottom: 40px;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 20px;
-    }
-
+    h1 { font-size: 1.8rem; margin-bottom: 10px; color: #58a6ff; line-height: 1.3; }
+    p  { color: #8b949e; margin-bottom: 32px; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
     .card {
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 12px;
-      padding: 30px 20px;
-      text-decoration: none;
-      color: #e6edf3;
-      transition: all 0.2s;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      cursor: pointer;
+      background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+      padding: 28px 20px; text-decoration: none; color: #e6edf3;
+      transition: all 0.2s; display: flex; flex-direction: column;
+      align-items: center; cursor: pointer;
     }
-
     .card:hover {
-      border-color: #58a6ff;
-      transform: translateY(-4px);
+      border-color: #58a6ff; transform: translateY(-4px);
       box-shadow: 0 8px 24px rgba(88,166,255,0.15);
     }
-
-    .card.disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-      pointer-events: none;
-    }
-
-    .icon { font-size: 2rem; }
-    .card h2 { font-size: 1.1rem; margin-top: 10px; }
-
-    .center-box {
-      display: flex;
-      justify-content: center;
-      margin-top: 20px;
-    }
-
-    .historial-btn {
-      padding: 15px;
-      min-width: 180px;
-      cursor: pointer;
-    }
-
+    .card.disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+    .icon { font-size: 2rem; margin-bottom: 10px; }
+    .card h2 { font-size: 1rem; }
+    .mes-label { font-size: 11px; color: #8b949e; margin-top: 6px; }
+    .center-box { display: flex; justify-content: center; margin-top: 20px; }
+    .historial-btn { padding: 15px; min-width: 180px; cursor: pointer; }
     .historial-container {
-      margin-top: 20px;
-      display: none;
-      animation: fadeIn 0.3s ease;
+      margin-top: 20px; display: none; animation: fadeIn 0.3s ease;
+      background: #161b22; border: 1px solid #30363d;
+      border-radius: 12px; padding: 20px;
     }
-
     .select-group {
-      display: flex;
-      gap: 10px;
-      justify-content: center;
-      margin-bottom: 15px;
-      flex-wrap: wrap;
+      display: flex; gap: 10px; justify-content: center;
+      margin-bottom: 15px; flex-wrap: wrap;
     }
-
-    input[list] {
-      padding: 10px;
-      border-radius: 8px;
-      border: none;
-      background: #161b22;
-      color: #e6edf3;
-      width: 140px;
-      border: 1px solid #30363d;
+    select {
+      padding: 10px; border-radius: 8px; border: 1px solid #30363d;
+      background: #0d1117; color: #e6edf3; font-size: 13px; cursor: pointer;
     }
-
+    select:focus { outline: none; border-color: #58a6ff; }
     .download-btn {
-      padding: 10px 20px;
-      border-radius: 8px;
-      border: none;
-      background: #58a6ff;
-      color: white;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: bold;
-      transition: 0.2s;
+      padding: 10px 20px; border-radius: 8px; border: none;
+      background: #58a6ff; color: #0d1117; cursor: pointer;
+      font-size: 13px; font-weight: bold; transition: 0.2s;
     }
-
-    .download-btn:hover { background: #3b82f6; }
-
-    .badge {
-      display: inline-block;
-      margin-bottom: 20px;
-      padding: 4px 12px;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: bold;
-      background: #1c2d3e;
-      color: #58a6ff;
-      border: 1px solid #2d6a9f;
-    }
-
-    .mes-actual {
-      font-size: 12px;
-      color: #8b949e;
-      margin-top: 8px;
-    }
-
-    .back {
-      display: inline-block;
-      margin-top: 32px;
-      color: #58a6ff;
-      text-decoration: none;
-      font-size: 14px;
-      transition: 0.2s;
-    }
-
-    .back:hover { color: #79c0ff; }
-
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(-5px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
+    .download-btn:hover { background: #79c0ff; }
+    @keyframes fadeIn { from { opacity:0; transform: translateY(-5px); } to { opacity:1; transform: translateY(0); } }
   </style>
 </head>
-
 <body>
   <div class="container">
-
+    <a class="back" href="MenuFF.html">← Volver al menú de Fondos</a>
     <div class="badge">FIP VANTRUST</div>
     <h1>FIP VANTRUST LIQUIDEZ LOCAL</h1>
     <p>Descarga los archivos disponibles</p>
 
     <div class="grid">
-
-      <!-- Reglamento Interno -->
-      <a class="card" id="btnReglamento"
-         href="regl.int/LIQUIDEZ_LOCAL.pdf" download>
+      <a class="card" href="regl.int/LIQUIDEZ_LOCAL.pdf" download>
         <div class="icon">📄</div>
         <h2>Reglamento Interno</h2>
       </a>
-
-      <!-- Folleto Comercial (mes más reciente) -->
       <a class="card" id="btnFolletoActual" href="#" download>
         <div class="icon">📑</div>
         <h2>Folleto Comercial</h2>
-        <div class="mes-actual" id="mesActualLabel">Cargando...</div>
+        <div class="mes-label" id="mesLabel">Cargando...</div>
       </a>
-
     </div>
 
-    <!-- Botón historial -->
     <div class="center-box">
       <div class="card historial-btn" onclick="toggleHistorial()">
         <div class="icon">🗂️</div>
-        <h2 style="font-size: 0.9rem;">Historial de Folletos</h2>
+        <h2 style="font-size:0.9rem;">Historial de Folletos</h2>
       </div>
     </div>
 
-    <!-- Panel historial -->
     <div class="historial-container" id="historial">
       <div class="select-group">
-        <input list="listaAnios" id="anio" placeholder="Año">
-        <datalist id="listaAnios"></datalist>
-
-        <input list="listaMeses" id="mes" placeholder="Mes">
-        <datalist id="listaMeses">
-          <option value="01 - Enero">
-          <option value="02 - Febrero">
-          <option value="03 - Marzo">
-          <option value="04 - Abril">
-          <option value="05 - Mayo">
-          <option value="06 - Junio">
-          <option value="07 - Julio">
-          <option value="08 - Agosto">
-          <option value="09 - Septiembre">
-          <option value="10 - Octubre">
-          <option value="11 - Noviembre">
-          <option value="12 - Diciembre">
-        </datalist>
+        <select id="selectMesHistorial">
+          <option value="">Selecciona un mes...</option>
+        </select>
       </div>
       <button class="download-btn" onclick="descargarHistorial()">
         Descargar Folleto
       </button>
     </div>
-
-    <a class="back" href="MenuFF.html">← Volver al menú de Fondos</a>
-
   </div>
 
   <script>
-    const REPO      = "mivelascor/fondos-financieros";
-    const BRANCH    = "main";
+    const REPO       = "mivelascor/fondos-financieros";
+    const BRANCH     = "main";
     const NOMBRE_PDF = "FIP_VANTRUST_LIQUIDEZ_LOCAL.pdf";
 
     async function cargarUltimo() {
@@ -233,31 +111,31 @@
           `https://api.github.com/repos/${REPO}/contents/folletos`,
           { headers: { "Accept": "application/vnd.github+json" } }
         );
-        if (!resp.ok) throw new Error("Sin folletos aún");
-
+        if (!resp.ok) throw new Error("sin datos");
         const items = await resp.json();
         const meses = items
           .filter(i => i.type === "dir" && /^\d{4}-\d{2}$/.test(i.name))
-          .map(i => i.name)
-          .sort()
-          .reverse();
+          .map(i => i.name).sort().reverse();
 
-        if (meses.length > 0) {
-          const ultimo = meses[0];
-          const url = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/folletos/${ultimo}/${NOMBRE_PDF}`;
-          document.getElementById("btnFolletoActual").href = url;
-          document.getElementById("mesActualLabel").textContent = `Mes: ${ultimo}`;
-
-          // Poblar selector de años
-          const anios = [...new Set(meses.map(m => m.split("-")[0]))];
-          document.getElementById("listaAnios").innerHTML =
-            anios.map(a => `<option value="${a}">`).join("");
-        } else {
-          document.getElementById("mesActualLabel").textContent = "No disponible aún";
+        const sel = document.getElementById("selectMesHistorial");
+        if (meses.length === 0) {
+          document.getElementById("mesLabel").textContent = "No disponible aún";
           document.getElementById("btnFolletoActual").classList.add("disabled");
+          return;
         }
+
+        // Folleto más reciente
+        const ultimo = meses[0];
+        const url = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/folletos/${ultimo}/${NOMBRE_PDF}`;
+        document.getElementById("btnFolletoActual").href = url;
+        document.getElementById("mesLabel").textContent = ultimo;
+
+        // Llenar selector historial
+        sel.innerHTML = meses
+          .map(m => `<option value="${m}">${m}</option>`)
+          .join("");
       } catch(e) {
-        document.getElementById("mesActualLabel").textContent = "No disponible aún";
+        document.getElementById("mesLabel").textContent = "No disponible";
         document.getElementById("btnFolletoActual").classList.add("disabled");
       }
     }
@@ -268,13 +146,12 @@
     }
 
     function descargarHistorial() {
-      const anio = document.getElementById("anio").value.trim();
-      const mes  = document.getElementById("mes").value.trim().substring(0, 2);
-      if (!anio || !mes) { alert("Selecciona año y mes"); return; }
-      const url = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/folletos/${anio}-${mes}/${NOMBRE_PDF}`;
+      const mes = document.getElementById("selectMesHistorial").value;
+      if (!mes) { alert("Selecciona un mes"); return; }
+      const url = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/folletos/${mes}/${NOMBRE_PDF}`;
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${NOMBRE_PDF.replace(".pdf","")} ${anio}-${mes}.pdf`;
+      a.download = `${NOMBRE_PDF.replace(".pdf","")} ${mes}.pdf`;
       a.click();
     }
 
