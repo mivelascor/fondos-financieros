@@ -1,37 +1,50 @@
 """
-config.py — Configuración central del sistema de folletos.
+config.py — Configuración central.
 
-Inputs manuales (subir a inputs/ cada mes):
-  - inputs/valor_cuota.xlsx   → valores cuota diarios de todos los fondos
-  - inputs/cartera.xlsx       → composición de cartera post-procesada
+Fuentes de datos:
+  - Valor cuota : API REST interna (automático)
+  - ICP         : API BCCh (automático, requiere BCCH_USER / BCCH_PASS)
+  - Cartera     : inputs/cartera.xlsx subido via admin.html (manual)
 
-Automático:
-  - ICP: se calcula desde la TIB descargada del BCCh (API gratuita con registro)
-  - Competencia: scraping de cmfchile.cl
+Input del PM via admin.html:
+  - cartera.xlsx
+  - Comentario CLP
+  - Comentario USD
 """
 import os
 from pathlib import Path
 
+# ── Rutas ─────────────────────────────────────────────────────────────────────
 BASE_DIR      = Path(__file__).parent
 INPUTS_DIR    = BASE_DIR.parent / "inputs"
 OUTPUT_DIR    = BASE_DIR.parent / "folletos"
 TEMPLATE_PPTX = BASE_DIR / "templates" / "folleto_template_clean.pptx"
 
-ARCHIVO_VALOR_CUOTA = INPUTS_DIR / "valor_cuota.xlsx"
-ARCHIVO_CARTERA     = INPUTS_DIR / "cartera.xlsx"
+# Solo la cartera es input manual
+ARCHIVO_CARTERA = INPUTS_DIR / "cartera.xlsx"
 
+# ── API SQL interna ───────────────────────────────────────────────────────────
+SQL_API_URL = "https://claudeods.vantrustcapital.cl/query"
+
+# ── BCCh API ──────────────────────────────────────────────────────────────────
 BCCH_USER = os.environ.get("BCCH_USER", "")
 BCCH_PASS = os.environ.get("BCCH_PASS", "")
 
+# ── GitHub ────────────────────────────────────────────────────────────────────
 GITHUB_TOKEN  = os.environ.get("GH_TOKEN", "")
 GITHUB_REPO   = os.environ.get("GH_REPO", "mivelascor/fondos-financieros")
 GITHUB_BRANCH = "main"
 
+# ── LibreOffice ───────────────────────────────────────────────────────────────
 LIBREOFFICE_PATH = "/usr/bin/libreoffice"
 
-CMF_COMP_CLP = {"nombre": "FONDO MUTUO SANTANDER MONEY MARKET", "rut": "8057", "row": "AAAw cAAhAAAACcAAs"}
-CMF_COMP_USD = {"nombre": "FONDO MUTUO BANCHILE CORPORATE DOLLAR", "rut": "8248", "row": ""}
+# ── Competencia CMF ───────────────────────────────────────────────────────────
+CMF_COMP_CLP = {"nombre": "FONDO MUTUO SANTANDER MONEY MARKET",
+                "rut": "8057", "row": "AAAw cAAhAAAACcAAs"}
+CMF_COMP_USD = {"nombre": "FONDO MUTUO BANCHILE CORPORATE DOLLAR",
+                "rut": "8248", "row": ""}
 
+# ── Posiciones OLE (EMU) ──────────────────────────────────────────────────────
 OLE_POSITIONS = {
     "tabla_rentabilidad":  {"left": 3762590, "top": 1462653, "width": 4743450, "height": 1533525},
     "grafico_evolucion":   {"left": 3806246, "top": 3174018, "width": 4656137, "height": 2860675},
@@ -39,6 +52,8 @@ OLE_POSITIONS = {
     "tabla_comparacion":   {"left": 3616035, "top": 8713003, "width": 5042553, "height": 1898057},
 }
 
+# ── Fondos con folleto ────────────────────────────────────────────────────────
+# Nombre exacto como aparece en VALORES_CUOTA_GPI.EMPRESA
 FONDOS_CON_FOLLETO = [
     "FIP VANTRUST LIQUIDEZ ACTIVA",
     "FIP VANTRUST LIQUIDEZ ALTO APORTE",
