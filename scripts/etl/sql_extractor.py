@@ -1,16 +1,13 @@
 """
 etl/sql_extractor.py — Obtiene valores cuota desde la API REST interna.
 
-API:
-  GET  https://claudeods.vantrustcapital.cl/schema  → schema
-  POST https://claudeods.vantrustcapital.cl/query   → {"Sql": "SELECT ..."}
+API: POST https://claudeods.vantrustcapital.cl/query
+     Body: {"Sql": "SELECT ..."}
 
-Tabla usada: VALORES_CUOTA_GPI
-  - EMPRESA      → nombre del fondo
-  - FECHA_CIERRE → fecha del valor cuota
-  - VALOR_CUOTA  → valor cuota del día
-
-No requiere credenciales. Solo acepta SELECT.
+Tabla: ODS.VALORES_CUOTA_GPI
+  EMPRESA      → nombre del fondo
+  FECHA_CIERRE → fecha
+  VALOR_CUOTA  → valor cuota del día
 """
 import requests
 import pandas as pd
@@ -20,41 +17,35 @@ API_URL = "https://claudeods.vantrustcapital.cl/query"
 HEADERS = {"Content-Type": "application/json"}
 
 
-def _query(sql: str) -> list[dict]:
-    """Ejecuta un SELECT en la API y retorna lista de filas."""
+def _query(sql: str) -> list:
     resp = requests.post(API_URL, json={"Sql": sql}, headers=HEADERS, timeout=60)
     resp.raise_for_status()
     data = resp.json()
-    # La API retorna lista de dicts o dict con key 'data'/'results'
     if isinstance(data, list):
         return data
-    for key in ("data", "results", "rows", "value"):
-        if key in data:
-            return data[key]
-    return data
+    return data.get("rows", data.get("data", data.get("results", [])))
 
 
 def get_valores_cuota_eom() -> pd.DataFrame:
     """
-    Descarga valores cuota diarios de los últimos 15 meses
+    Descarga valores cuota de ODS.VALORES_CUOTA_GPI (últimos 15 meses)
     y filtra el último día disponible de cada mes por fondo.
-
     Retorna: fecha, fondo, valor_cuota
     """
-    # Fecha inicio: 15 meses atrás
     desde = (date.today() - timedelta(days=455)).strftime("%Y-%m-%d")
 
     sql = f"""
         SELECT
-            FECHA_CIERRE   AS fecha,
-            EMPRESA        AS fondo,
-            VALOR_CUOTA    AS valor_cuota
-        FROM VALORES_CUOTA_GPI
+            FECHA_CIERRE  AS fecha,
+            EMPRESA       AS fondo,
+            VALOR_CUOTA   AS valor_cuota
+        FROM ODS.VALORES_CUOTA_GPI
         WHERE FECHA_CIERRE >= '{desde}'
           AND VALOR_CUOTA  > 0
+          AND EMPRESA LIKE '%VANTRUST%LIQUIDEZ%'
         ORDER BY FECHA_CIERRE ASC
     """
-    print("    Consultando VALORES_CUOTA_GPI...")
+    print("    Consultando ODS.VALORES_CUOTA_GPI...")
     rows = _query(sql)
     if not rows:
         raise ValueError("La API no retornó datos de valores cuota.")
@@ -65,7 +56,7 @@ def get_valores_cuota_eom() -> pd.DataFrame:
     df["valor_cuota"] = pd.to_numeric(df["valor_cuota"], errors="coerce")
     df = df.dropna(subset=["fecha", "valor_cuota", "fondo"])
 
-    # Filtrar último día disponible de cada mes
+    # Filtrar último día disponible de cada mes por fondo
     df["anio_mes"] = df["fecha"].dt.to_period("M")
     df_eom = (
         df.sort_values("fecha")
@@ -74,5 +65,5 @@ def get_valores_cuota_eom() -> pd.DataFrame:
           .reset_index()
           .drop(columns=["anio_mes"])
     )
-    print(f"    {df_eom['fondo'].nunique()} fondos, {len(df_eom)} registros EOM")
+    print(f"      {df_eom['fondo'].nunique()} fondos, {len(df_eom)} registros EOM")
     return df_eom[["fecha", "fondo", "valor_cuota"]]
