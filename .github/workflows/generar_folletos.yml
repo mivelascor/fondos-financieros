@@ -35,8 +35,11 @@ jobs:
       - name: Instalar dependencias Python
         run: pip install -r scripts/requirements.txt
 
-      - name: Instalar pptxgenjs
-        run: npm install -g pptxgenjs
+      - - name: Instalar pptxgenjs
+        run: |
+          cd scripts/generador
+          npm init -y
+          npm install pptxgenjs
 
       - name: Instalar LibreOffice
         run: |
