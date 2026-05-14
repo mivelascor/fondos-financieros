@@ -5,33 +5,6 @@ from datetime import date, timedelta
 API_URL = "https://claudeods.vantrustcapital.cl/query"
 HEADERS = {"Content-Type": "application/json"}
 
-FONDOS_QUERY = (
-    "'FIP VANTRUST LIQUIDEZ ACTIVA',"
-    "'FIP VANTRUST LIQUIDEZ ALTO APORTE',"
-    "'FIP VANTRUST LIQUIDEZ ALTO CAPITAL',"
-    "'FIP VANTRUST LIQUIDEZ ALTO MONTO',"
-    "'FIP VANTRUST LIQUIDEZ CAJA',"
-    "'FIP VANTRUST LIQUIDEZ CONTINUA',"
-    "'FIP VANTRUST LIQUIDEZ CORRIENTE',"
-    "'FIP VANTRUST LIQUIDEZ CORTO PLAZO',"
-    "'FIP VANTRUST LIQUIDEZ DISPONIBLE I',"
-    "'FIP VANTRUST LIQUIDEZ DOLAR',"
-    "'FIP VANTRUST LIQUIDEZ DOLAR CAJA',"
-    "'FIP VANTRUST LIQUIDEZ EFECTIVO',"
-    "'FIP VANTRUST LIQUIDEZ FLEXIBLE',"
-    "'FIP VANTRUST LIQUIDEZ I',"
-    "'FIP VANTRUST LIQUIDEZ LOCAL',"
-    "'FIP VANTRUST LIQUIDEZ MONETARIO I',"
-    "'FIP VANTRUST LIQUIDEZ PERMANENTE',"
-    "'FIP VANTRUST LIQUIDEZ PLUS',"
-    "'FIP VANTRUST LIQUIDEZ PRESENTE',"
-    "'FIP VANTRUST LIQUIDEZ RECURRENTE',"
-    "'FIP VANTRUST LIQUIDEZ RENDIMIENTO',"
-    "'FIP VANTRUST LIQUIDEZ RESERVA DOLAR',"
-    "'FIP VANTRUST LIQUIDEZ SENCILLO',"
-    "'FIP VANTRUST LIQUIDEZ TEMPORAL'"
-)
-
 
 def _query(sql: str) -> list:
     resp = requests.post(API_URL, json={"Sql": sql}, headers=HEADERS, timeout=60)
@@ -47,13 +20,12 @@ def get_valores_cuota_eom() -> pd.DataFrame:
 
     sql = f"""
         SELECT
-            FECHA_CIERRE AS fecha,
-            EMPRESA      AS fondo,
-            VALOR_CUOTA  AS valor_cuota
+            FECHA_CIERRE                AS fecha,
+            RTRIM(LTRIM(EMPRESA))       AS fondo,
+            VALOR_CUOTA                 AS valor_cuota
         FROM ODS.VALORES_CUOTA_GPI
         WHERE FECHA_CIERRE >= '{desde}'
           AND VALOR_CUOTA > 0
-          AND EMPRESA IN ({FONDOS_QUERY})
         ORDER BY FECHA_CIERRE ASC
     """
     print("    Consultando ODS.VALORES_CUOTA_GPI...")
