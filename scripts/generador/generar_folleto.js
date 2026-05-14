@@ -252,6 +252,16 @@ function slide2(pres, d) {
 
   sec(slide, "Composición General por Instrumentos Financieros", y); y += 0.22;
 
+  // Composición por Instrumento (si existe)
+  if (d.comp_instrumento && d.comp_instrumento.length > 0) {
+    for (const [instr, pct] of d.comp_instrumento) {
+      slide.addText(instr, { x:IZQ_X, y, w:1.55, h:0.18, fontSize:7.5, fontFace:"Calibri", margin:0 });
+      slide.addText(pct,   { x:IZQ_X+1.55, y, w:0.9,  h:0.18, fontSize:7.5, fontFace:"Calibri", align:"right", margin:0 });
+      y += 0.2;
+    }
+    y += 0.05;
+  }
+
   // Tabla límites
   const limites = d.limites || [
     ["Bonos","0%","25%"],["Depósitos a Plazo","5%","100%"],["Facturas","0%","40%"],
