@@ -645,46 +645,25 @@ function buildSlide2(pres, datos, cfg) {
 
 // ─── Main ──────────────────────────────────────────────────────────────────────
 async function main() {
-  const rawArgs = process.argv.slice(2);
-
-  // Soporta dos formas de llamada:
-  //   Posicional:  node generar_folleto.js datos.json config.json [output.pptx]
-  //   Con flags:   node generar_folleto.js --data datos.json --config config.json [--output out.pptx]
-  let datosPath, cfgPath, outputPath;
-
-  if (rawArgs.includes('--data') || rawArgs.includes('--config')) {
-    // Forma con flags
-    const get = (flag) => {
-      const i = rawArgs.indexOf(flag);
-      return i !== -1 ? rawArgs[i + 1] : null;
-    };
-    datosPath  = get('--data');
-    cfgPath    = get('--config');
-    outputPath = get('--output');
-  } else {
-    // Forma posicional
-    datosPath  = rawArgs[0];
-    cfgPath    = rawArgs[1];
-    outputPath = rawArgs[2];
-  }
-
-  if (!datosPath || !cfgPath) {
+  const args = process.argv.slice(2);
+  if (args.length < 2) {
     console.error('Uso: node generar_folleto.js <datos.json> <config_fondo.json> [output.pptx]');
-    console.error('  o: node generar_folleto.js --data <datos.json> --config <config.json> [--output <out.pptx>]');
     process.exit(1);
   }
 
-  const datos = JSON.parse(fs.readFileSync(datosPath,  'utf8'));
-  const cfg   = JSON.parse(fs.readFileSync(cfgPath,    'utf8'));
+  const datos = JSON.parse(fs.readFileSync(args[0], 'utf8'));
+  const cfg   = JSON.parse(fs.readFileSync(args[1], 'utf8'));
 
-  const nombreArchivo = outputPath
+  const nombreArchivo = args[2]
     || ('folleto_' + datos.nombre_fondo.replace(/\s+/g, '_') + '.pptx');
 
   const pres = new pptxgen();
+  pres.layout  = 'LAYOUT_4x3';    // 10×7.5 — lo sobreescribimos manualmente
+  // Portrait A4: 7.5" × 10"
   pres.defineLayout({ name: 'PORTRAIT', width: SW, height: SH });
-  pres.layout = 'PORTRAIT';
-  pres.title  = datos.nombre_fondo;
-  pres.author = 'VanTrust Asset Management';
+  pres.layout  = 'PORTRAIT';
+  pres.title   = datos.nombre_fondo;
+  pres.author  = 'VanTrust Asset Management';
 
   buildSlide1(pres, datos, cfg);
   buildSlide2(pres, datos, cfg);
