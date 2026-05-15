@@ -1,8 +1,8 @@
 {
-  "nombre_fondo": "FIP USD Money Market",
-  "template": "TEMPLATE_FONDO_USD_MONEY_MARKET.xlsx",
+  "nombre_fondo": "FIP Extra",
+  "template": "TEMPLATE_FONDO_EXTRA.xlsx",
   "rut": "COMPLETAR",
-  "moneda": "USD",
+  "moneda": "CLP",
   "tipo": "Fondo de Inversión Privado",
   "inicio": "COMPLETAR",
   "benchmark": "Índice Cámara Promedio (ICP)",

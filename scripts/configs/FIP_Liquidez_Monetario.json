@@ -1,6 +1,6 @@
 {
-  "nombre_fondo": "FIP Extra",
-  "template": "TEMPLATE_FONDO_EXTRA.xlsx",
+  "nombre_fondo": "FIP Liquidez Monetario",
+  "template": "TEMPLATE_FONDO_LIQUIDEZ_MONETARIO.xlsx",
   "rut": "COMPLETAR",
   "moneda": "CLP",
   "tipo": "Fondo de Inversión Privado",
