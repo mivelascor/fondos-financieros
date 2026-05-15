@@ -1,214 +1,183 @@
 """
-main.py — Orquestador principal.
+scripts/main.py
+Orquestador del pipeline de folletos VanTrust.
 
-Flujo mensual:
-  1. Obtiene valor cuota de todos los fondos Vantrust (API SQL)
-  2. Scraping de competencia CLP y USD desde CMF
-     → Si consigue el valor nuevo, actualiza cmf_scraper.py en el repo
-  3. Descarga ICP desde mindicador.cl
-  4. Genera 24 folletos PDF
-  5. Sube folletos + cmf_scraper.py actualizado a GitHub
+Uso:
+    python main.py "Comentario CLP..." "Comentario USD..."
 
-Inputs manuales (via admin.html):
-  - inputs/cartera.xlsx
-  - Comentario CLP y USD
+El script:
+1. Lee templates TEMPLATE_FONDO_*.xlsx desde scripts/data/
+2. Extrae datos con extraer_datos.py
+3. Inyecta comentarios del PM
+4. Genera .pptx con generar_folleto.js  (soporta flags y posicional)
+5. Convierte a PDF con LibreOffice
+6. Guarda en folletos/YYYY-MM/ y crea latest.zip
 """
-import sys, os, zipfile, base64, requests
-from datetime import date, timedelta
+
+import sys
+import os
+import json
+import subprocess
+import zipfile
 from pathlib import Path
-import pandas as pd
+from datetime import datetime
 
-from config import (FONDOS_CON_FOLLETO, OUTPUT_DIR, GITHUB_TOKEN,
-                    GITHUB_REPO, GITHUB_BRANCH, get_info_fondo)
-from etl.sql_extractor import get_valores_cuota_eom
-from etl.excel_reader   import get_cartera_composicion
-from etl.icp_bcch       import get_icp_eom
-from etl.cmf_scraper    import (get_competencia_clp, get_competencia_usd,
-                                update_historico)
-from calculos.rentabilidades import (calcular_rent_mensual, normalizar_b1000,
-                                     construir_tabla_rentabilidades,
-                                     construir_tabla_historica, DIVIDENDOS)
-from generador.pptx_builder import generar_pptx
-from generador.pdf_exporter import pptx_a_pdf
+sys.path.insert(0, str(Path(__file__).parent))
+from extraer_datos import extraer_datos
+
+# ─── Rutas ─────────────────────────────────────────────────────────────────────
+SCRIPT_DIR   = Path(__file__).parent
+REPO_ROOT    = SCRIPT_DIR.parent
+DATA_DIR     = SCRIPT_DIR / 'data'
+FOLLETOS_DIR = REPO_ROOT  / 'folletos'
+GENJS        = SCRIPT_DIR / 'generador' / 'generar_folleto.js'
+CFG_DIR      = SCRIPT_DIR / 'configs'
+
+# ─── Fondos a procesar ─────────────────────────────────────────────────────────
+FONDOS_CONFIG = [
+    # (template_xlsx,                              config_json,                        moneda)
+    ('TEMPLATE_FONDO_LIQUIDEZ.xlsx',               'FIP_Liquidez_Sencillo.json',       'clp'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_UNO.xlsx',           'FIP_Liquidez_Uno.json',            'clp'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_LOCAL.xlsx',         'FIP_Liquidez_Local.json',          'clp'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_ACTIVA.xlsx',        'FIP_Liquidez_Activa.json',         'clp'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_ALTO_MONTO.xlsx',    'FIP_Liquidez_Alto_Monto.json',     'clp'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_CAJA.xlsx',          'FIP_Liquidez_Caja.json',           'clp'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_CONTINUA.xlsx',      'FIP_Liquidez_Continua.json',       'clp'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_CORRIENTE.xlsx',     'FIP_Liquidez_Corriente.json',      'clp'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_CORTO_PLAZO.xlsx',   'FIP_Liquidez_Corto_Plazo.json',    'clp'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_DISPONIBLE.xlsx',    'FIP_Liquidez_Disponible.json',     'clp'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_EFECTIVO.xlsx',      'FIP_Liquidez_Efectivo.json',       'clp'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_FLEXIBLE.xlsx',      'FIP_Liquidez_Flexible.json',       'clp'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_MONETARIO.xlsx',     'FIP_Liquidez_Monetario.json',      'clp'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_PLUS.xlsx',          'FIP_Liquidez_Plus.json',           'clp'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_RENDIMIENTO.xlsx',   'FIP_Liquidez_Rendimiento.json',    'clp'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_RESERVA_DOLAR.xlsx', 'FIP_Liquidez_Reserva_Dolar.json',  'usd'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_DOLAR.xlsx',         'FIP_Liquidez_Dolar.json',          'usd'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_DOLAR_CAJA.xlsx',    'FIP_Liquidez_Dolar_Caja.json',     'usd'),
+    ('TEMPLATE_FONDO_ALTO_CAPITAL.xlsx',           'FIP_Alto_Capital.json',            'clp'),
+    ('TEMPLATE_FONDO_ALTO_APORTE.xlsx',            'FIP_Alto_Aporte.json',             'clp'),
+    ('TEMPLATE_FONDO_ALTO_PATRIMONIO.xlsx',        'FIP_Alto_Patrimonio.json',         'clp'),
+    ('TEMPLATE_FONDO_EXTRA.xlsx',                  'FIP_Extra.json',                   'clp'),
+    ('TEMPLATE_FONDO_USD_MONEY_MARKET.xlsx',       'FIP_USD_Money_Market.json',        'usd'),
+    ('TEMPLATE_FONDO_FACTURA_DOLAR.xlsx',          'FIP_Factura_Dolar.json',           'usd'),
+    # Fondos con nombres especiales en el xlsx
+    ('TEMPLATE_FONDO_LIQUIDEZ_Monetario_I.xlsx',   'FIP_Liquidez_Monetario_I.json',    'clp'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_Disponible_I.xlsx',  'FIP_Liquidez_Disponible_I.json',   'clp'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_Presente.xlsx',      'FIP_Liquidez_Presente.json',       'clp'),
+    ('TEMPLATE_FONDO_LIQUIDEZ_Permanente.xlsx',    'FIP_Liquidez_Permanente.json',     'clp'),
+]
 
 
-def _fecha_referencia() -> date:
-    hoy = date.today()
-    return hoy.replace(day=1) - timedelta(days=1)
+def log(msg):
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
-def _github_put(file_path: Path, repo_path: str, msg: str):
-    h = {"Authorization": f"Bearer {GITHUB_TOKEN}",
-         "Accept": "application/vnd.github+json"}
-    api = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{repo_path}"
-    r   = requests.get(api, headers=h, timeout=30)
-    sha = r.json().get("sha") if r.status_code == 200 else None
-    with open(file_path, "rb") as f:
-        content = base64.b64encode(f.read()).decode()
-    payload = {"message": msg, "content": content, "branch": GITHUB_BRANCH}
-    if sha:
-        payload["sha"] = sha
-    r = requests.put(api, headers=h, json=payload, timeout=60)
-    print(f"  {'[OK]' if r.status_code in (200,201) else '[WARN]'} {repo_path}")
+def generar_pptx(datos_json: Path, cfg_json: Path, output_pptx: Path):
+    """Llama a generar_folleto.js. Soporta argumentos posicionales."""
+    cmd = ['node', str(GENJS), str(datos_json), str(cfg_json), str(output_pptx)]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+    return output_pptx
 
 
-def run(comentario_clp: str, comentario_usd: str):
-    fd      = _fecha_referencia()
-    mes_str = fd.strftime("%Y-%m")
-    periodo = fd.strftime("%B %Y").capitalize()
-    fd_ts   = pd.Timestamp(fd)
+def convertir_pdf(pptx_path: Path, output_dir: Path) -> Path:
+    """Convierte .pptx → .pdf con LibreOffice headless."""
+    result = subprocess.run(
+        ['soffice', '--headless', '--convert-to', 'pdf',
+         '--outdir', str(output_dir), str(pptx_path)],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip())
+    pdf = output_dir / (pptx_path.stem + '.pdf')
+    if not pdf.exists():
+        raise FileNotFoundError(f"PDF no generado: {pdf}")
+    return pdf
 
-    print(f"\n{'='*60}")
-    print(f" GENERANDO FOLLETOS - {periodo}")
-    print(f" Fecha referencia: {fd}")
-    print(f"{'='*60}\n")
 
-    # ── 1. Datos ──────────────────────────────────────────────────────────────
-    print("[1/5] Obteniendo datos...")
+def crear_zip(carpeta_mes: Path) -> Path:
+    zip_path = FOLLETOS_DIR / 'latest.zip'
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for pdf in sorted(carpeta_mes.glob('*.pdf')):
+            zf.write(pdf, pdf.name)
+    log(f"ZIP: {zip_path.name}  ({zip_path.stat().st_size // 1024} KB, {len(list(carpeta_mes.glob('*.pdf')))} PDFs)")
+    return zip_path
 
-    print("  -> Valor cuota (API SQL interna)")
-    df_vc = get_valores_cuota_eom()
 
-    print("  -> ICP (mindicador.cl)")
-    df_icp = get_icp_eom()
-    print(f"      {len(df_icp)} meses de ICP")
+def main():
+    if len(sys.argv) < 3:
+        print("Uso: python main.py '<comentario_clp>' '<comentario_usd>'")
+        sys.exit(1)
 
-    print("  -> Competencia CMF")
-    df_comp_clp, val_clp_nuevo, fecha_clp_nueva = get_competencia_clp()
-    df_comp_usd, val_usd_nuevo, fecha_usd_nueva = get_competencia_usd()
-    print(f"      CLP: {len(df_comp_clp)} meses | USD: {len(df_comp_usd)} meses")
+    comentario_clp = sys.argv[1].strip()
+    comentario_usd = sys.argv[2].strip()
 
-    # Si se obtuvieron valores nuevos via scraping, actualizar cmf_scraper.py
-    if val_clp_nuevo and val_usd_nuevo:
-        update_historico(val_clp_nuevo, fecha_clp_nueva,
-                         val_usd_nuevo, fecha_usd_nueva)
+    mes_str      = datetime.now().strftime('%Y-%m')
+    carpeta_mes  = FOLLETOS_DIR / mes_str
+    carpeta_mes.mkdir(parents=True, exist_ok=True)
 
-    # ── 2. Series de referencia ───────────────────────────────────────────────
-    icp_serie = pd.Series(df_icp["icp"].values,
-                          index=pd.DatetimeIndex(df_icp["fecha"])).sort_index()
-    comp_clp_serie = (pd.Series(df_comp_clp["valor_cuota"].values,
-                                index=pd.DatetimeIndex(df_comp_clp["fecha"])).sort_index()
-                      if not df_comp_clp.empty else pd.Series(dtype=float))
-    comp_usd_serie = (pd.Series(df_comp_usd["valor_cuota"].values,
-                                index=pd.DatetimeIndex(df_comp_usd["fecha"])).sort_index()
-                      if not df_comp_usd.empty else pd.Series(dtype=float))
+    tmp_dir = Path('/tmp/folletos_vantrust')
+    tmp_dir.mkdir(exist_ok=True)
 
-    # ── 3. Generar folletos ───────────────────────────────────────────────────
-    pptx_dir = OUTPUT_DIR / mes_str / "pptx"
-    pdf_dir  = OUTPUT_DIR / mes_str
-    pptx_dir.mkdir(parents=True, exist_ok=True)
-    pdf_dir.mkdir(parents=True, exist_ok=True)
+    generados = 0
+    errores   = []
 
-    print(f"\n[2/5] Generando {len(FONDOS_CON_FOLLETO)} folletos...")
-    pdf_paths, errores = [], []
+    for template_file, cfg_file, moneda in FONDOS_CONFIG:
+        template_path = DATA_DIR / template_file
+        cfg_path      = CFG_DIR  / cfg_file
 
-    for nombre_fondo in FONDOS_CON_FOLLETO:
+        if not template_path.exists():
+            log(f"⚠  Sin template: {template_file}")
+            continue
+        if not cfg_path.exists():
+            log(f"⚠  Sin config:   {cfg_file}")
+            continue
+
         try:
-            print(f"\n  > {nombre_fondo}")
-            es_usd     = any(x in nombre_fondo.upper() for x in ("DOLAR", "USD"))
-            moneda     = "USD" if es_usd else "CLP"
-            comentario = comentario_usd if es_usd else comentario_clp
-            comp_serie = comp_usd_serie if es_usd else comp_clp_serie
+            log(f"→  {template_file}")
 
-            df_f = df_vc[df_vc["fondo"] == nombre_fondo].sort_values("fecha").copy()
-            if df_f.empty:
-                raise ValueError("Sin datos en VALORES_CUOTA_GPI")
+            # 1. Extraer datos del Excel
+            datos = extraer_datos(str(template_path))
 
-            serie_vc     = pd.Series(df_f["valor_cuota"].values,
-                                     index=pd.DatetimeIndex(df_f["fecha"])).sort_index()
-            fecha_inicio = pd.Timestamp(serie_vc.index[0])
-            div          = DIVIDENDOS.get(nombre_fondo, 0.0)
+            # 2. Inyectar comentario del PM
+            datos['comentario'] = comentario_usd if moneda == 'usd' else comentario_clp
 
-            # Rentabilidades con ajuste dividendos
-            rent_fondo = calcular_rent_mensual(serie_vc,    div)
-            rent_comp  = calcular_rent_mensual(comp_serie,  0.0)
-            rent_icp   = calcular_rent_mensual(icp_serie,   0.0)
+            # 3. Guardar JSON temporal
+            slug = datos['nombre_fondo'].replace(' ', '_').replace('/', '-')
+            datos_json  = tmp_dir / f"{slug}.json"
+            output_pptx = tmp_dir / f"{slug}.pptx"
 
-            tabla_resumen  = construir_tabla_rentabilidades(
-                serie_vc, comp_serie, icp_serie, nombre_fondo, fd_ts)
-            tabla_historica = construir_tabla_historica(
-                serie_vc, comp_serie, icp_serie, nombre_fondo, fd_ts)
+            with open(datos_json, 'w', encoding='utf-8') as f:
+                json.dump(datos, f, ensure_ascii=False, default=str)
 
-            b1000_f = normalizar_b1000(serie_vc,   fecha_inicio)
-            b1000_c = (normalizar_b1000(comp_serie, fecha_inicio)
-                       if not comp_serie.empty else pd.Series(dtype=float))
-            b1000_i = normalizar_b1000(icp_serie,  fecha_inicio)
+            # 4. Generar PPTX
+            generar_pptx(datos_json, cfg_path, output_pptx)
 
-            comp_cartera = get_cartera_composicion(nombre_fondo)
-            info         = get_info_fondo(nombre_fondo, moneda,
-                                          fecha_inicio.strftime("%B %Y").capitalize())
-
-            pptx_path = pptx_dir / f"{nombre_fondo.replace(' ', '_')}.pptx"
-            generar_pptx(
-                nombre_fondo    = nombre_fondo,
-                periodo_str     = periodo,
-                comentario_pm   = comentario,
-                b1000_fondo     = b1000_f,
-                b1000_comp      = b1000_c,
-                b1000_icp       = b1000_i,
-                tabla_resumen   = tabla_resumen,
-                tabla_historica = tabla_historica,
-                comp_cartera    = comp_cartera,
-                info_fondo      = info,
-                out_path        = pptx_path,
-            )
-            print("    OK PPTX")
-
-            pdf_path = pptx_a_pdf(pptx_path, pdf_dir)
-            pdf_paths.append(pdf_path)
-            print(f"    OK PDF: {pdf_path.name}")
+            # 5. Convertir a PDF
+            pdf = convertir_pdf(output_pptx, carpeta_mes)
+            log(f"✓  {pdf.name}")
+            generados += 1
 
         except Exception as e:
-            print(f"    ERROR: {e}")
-            errores.append((nombre_fondo, str(e)))
+            log(f"✗  Error en {template_file}: {e}")
+            errores.append((template_file, str(e)))
 
-    if not pdf_paths:
-        print("\nERROR: Sin folletos generados. Abortando.")
-        sys.exit(1)
-
-    # ── 4. ZIP ────────────────────────────────────────────────────────────────
-    print(f"\n[3/5] Creando ZIP ({len(pdf_paths)} PDFs)...")
-    zip_mes    = pdf_dir    / f"folletos_{mes_str}.zip"
-    zip_latest = OUTPUT_DIR / "latest.zip"
-    for zp in (zip_mes, zip_latest):
-        with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED) as zf:
-            for pdf in pdf_paths:
-                zf.write(pdf, arcname=pdf.name)
-
-    # ── 5. GitHub ─────────────────────────────────────────────────────────────
-    if GITHUB_TOKEN:
-        print(f"\n[4/5] Subiendo a GitHub...")
-
-        # PDFs y ZIPs
-        _github_put(zip_latest, "folletos/latest.zip",
-                    f"latest.zip -> {mes_str}")
-        _github_put(zip_mes, f"folletos/{mes_str}/folletos_{mes_str}.zip",
-                    f"ZIP {mes_str}")
-        for pdf in pdf_paths:
-            _github_put(pdf, f"folletos/{mes_str}/{pdf.name}",
-                        f"{pdf.stem} {mes_str}")
-
-        # Si se actualizó el scraper con nuevos valores, subirlo tambien
-        if val_clp_nuevo and val_usd_nuevo:
-            scraper_path = Path(__file__).parent / "etl" / "cmf_scraper.py"
-            _github_put(scraper_path, "scripts/etl/cmf_scraper.py",
-                        f"CMF historico actualizado: {mes_str}")
-            print(f"  [OK] cmf_scraper.py actualizado en el repo")
-
-    # ── Resumen ───────────────────────────────────────────────────────────────
-    print(f"\n{'='*60}")
-    print(f" {periodo}: {len(pdf_paths)} folletos OK", end="")
-    if errores:
-        print(f", {len(errores)} errores:")
-        for n, e in errores:
-            print(f"   X {n}: {e}")
+    # 6. ZIP
+    if generados > 0:
+        crear_zip(carpeta_mes)
     else:
-        print(" OK")
-    print(f"{'='*60}\n")
-
-
-if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print('Uso: python main.py "Comentario CLP" "Comentario USD"')
+        log("ERROR: Sin folletos generados. Abortando.")
         sys.exit(1)
-    run(sys.argv[1], sys.argv[2])
+
+    if errores:
+        log(f"\n⚠  {len(errores)} error(es):")
+        for f, e in errores:
+            log(f"   {f}: {e}")
+        sys.exit(1)
+
+    log(f"\n✅ {generados} folletos en folletos/{mes_str}/")
+
+
+if __name__ == '__main__':
+    main()
