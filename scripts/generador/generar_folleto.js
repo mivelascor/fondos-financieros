@@ -317,7 +317,7 @@ function slide1(pres, d) {
     }
 
     slide.addTable(tableRows, {
-      x:DER_X, y:yr, w:DER_W, colW, rowH:0.14,
+      x:DER_X, y:yr, w:DER_W, colW:cw, rowH:0.14,
     });
   }
 }
