@@ -27,6 +27,9 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Instalar Playwright Chromium
+        run: playwright install chromium
+
       - name: Configurar Node.js 20
         uses: actions/setup-node@v4
         with:
