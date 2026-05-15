@@ -36,7 +36,7 @@ jobs:
         run: pip install -r scripts/requirements.txt
 
       - name: Instalar Playwright Chromium
-        run: playwright install chromium/requirements.txt
+        run: playwright install chromium
 
       - name: Instalar pptxgenjs
         run: |
