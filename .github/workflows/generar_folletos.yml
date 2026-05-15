@@ -27,9 +27,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Instalar Playwright Chromium
-        run: playwright install chromium/requirements.txt
-
       - name: Configurar Node.js 20
         uses: actions/setup-node@v4
         with:
@@ -37,6 +34,9 @@ jobs:
 
       - name: Instalar dependencias Python
         run: pip install -r scripts/requirements.txt
+
+      - name: Instalar Playwright Chromium
+        run: playwright install chromium/requirements.txt
 
       - name: Instalar pptxgenjs
         run: |
