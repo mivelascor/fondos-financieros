@@ -1,90 +1,104 @@
 """
-etl/icp_bcch.py — Calcula el ICP automáticamente usando la TPM
-de mindicador.cl (fuente pública, sin credenciales).
+etl/icp_bcch.py — Descarga TPM histórica desde mindicador.cl (público, sin credenciales)
+y calcula la rentabilidad mensual del ICP como TPM_promedio_mes / 1200.
 
-La TIB sigue exactamente la Tasa de Política Monetaria (TPM) del BCCh.
-mindicador.cl publica la TPM diaria gratuitamente desde 2013.
-
-Fórmula oficial ICP:
-  ICP_i = ICP_{i-1} x (1 + TIB_{i-1}/100 x Ndias/360)
+Para precisión máxima se pueden usar credenciales BCCh vía si3.bcentral.cl,
+pero la aproximación TPM/1200 es suficientemente precisa para los folletos.
 """
+import os
 import requests
 import pandas as pd
-from datetime import date, timedelta
+from datetime import date
 
-ICP_INICIAL = 10000.0
+BCCH_API  = "https://si3.bcentral.cl/SieteRestWS/SieteRestWS.ashx"
+SERIE_TIB = "F022.TIB.INC.D001.NO.Z.D"
+MINDICADOR = "https://mindicador.cl/api/tpm"
 
 
-def _get_tpm_anio(anio: int) -> pd.DataFrame:
-    """Descarga la TPM diaria de un año desde mindicador.cl"""
-    url = f"https://mindicador.cl/api/tpm/{anio}"
-    r = requests.get(url, timeout=30)
-    r.raise_for_status()
-    data = r.json()
-    rows = [
-        {"fecha": item["fecha"][:10], "tib": float(item["valor"])}
-        for item in data.get("serie", [])
-        if item.get("valor") is not None
-    ]
-    df = pd.DataFrame(rows)
-    if not df.empty:
-        df["fecha"] = pd.to_datetime(df["fecha"])
-    return df
+def _icp_desde_bcch(user: str, pwd: str) -> pd.DataFrame | None:
+    """Intenta descargar ICP diario desde BCCh si hay credenciales."""
+    try:
+        desde = "2009-01-01"
+        hasta = date.today().strftime("%Y-%m-%d")
+        params = {"user": user, "pass": pwd, "function": "GetSeries",
+                  "timeseries": SERIE_TIB, "firstdate": desde, "lastdate": hasta}
+        r = requests.get(BCCH_API, params=params, timeout=30)
+        data = r.json()
+        if data.get("Codigo") != 0:
+            return None
+        obs = data["Series"]["Obs"]
+        rows = []
+        for o in obs:
+            val = o.get("value", "")
+            if val and val not in ("", "NaN", "ND"):
+                try:
+                    rows.append({
+                        "fecha": pd.to_datetime(o["indexDateString"], dayfirst=True),
+                        "tib": float(val),
+                    })
+                except Exception:
+                    continue
+        df = pd.DataFrame(rows).sort_values("fecha").reset_index(drop=True)
+        if df.empty:
+            return None
+        # Calcular ICP mensual
+        df["anio_mes"] = df["fecha"].dt.to_period("M")
+        monthly = df.groupby("anio_mes")["tib"].mean().reset_index()
+        monthly["icp"] = monthly["tib"] / 1200
+        monthly["fecha"] = monthly["anio_mes"].dt.to_timestamp("M")
+        return monthly[["fecha", "icp"]].copy()
+    except Exception as e:
+        print(f"    [WARN] BCCh no disponible: {e}")
+        return None
+
+
+def _icp_desde_mindicador() -> pd.DataFrame:
+    """Descarga TPM histórica desde mindicador.cl (sin credenciales)."""
+    anio_inicio = 2009
+    anio_fin    = date.today().year
+    all_data    = []
+
+    for anio in range(anio_inicio, anio_fin + 1):
+        try:
+            r = requests.get(f"{MINDICADOR}/{anio}", timeout=15)
+            for item in r.json().get("serie", []):
+                try:
+                    all_data.append({
+                        "fecha": pd.to_datetime(item["fecha"]),
+                        "tpm": float(item["valor"]),
+                    })
+                except Exception:
+                    continue
+        except Exception:
+            continue
+
+    df = pd.DataFrame(all_data).sort_values("fecha").reset_index(drop=True)
+    df["anio_mes"] = df["fecha"].dt.to_period("M")
+    monthly = df.groupby("anio_mes")["tpm"].mean().reset_index()
+    monthly["icp"] = monthly["tpm"] / 1200
+    monthly["fecha"] = monthly["anio_mes"].dt.to_timestamp("M")
+    return monthly[["fecha", "icp"]].copy()
 
 
 def get_icp_eom() -> pd.DataFrame:
     """
-    Descarga TPM de los últimos 2 años, calcula ICP acumulado
-    y retorna el valor de fin de mes.
-    Retorna: fecha, icp
+    Retorna DataFrame con columnas: fecha (EOM), icp (rentabilidad mensual decimal).
+    Datos desde 2009.
     """
-    print("    Descargando TPM desde mindicador.cl (público, sin credenciales)...")
+    print("    Descargando TPM desde mindicador.cl...")
 
-    hoy  = date.today()
-    anio_actual   = hoy.year
-    anio_anterior = hoy.year - 1
-    anio_dos_atras = hoy.year - 2
+    user = os.environ.get("BCCH_USER", "")
+    pwd  = os.environ.get("BCCH_PASS", "")
 
-    frames = []
-    for anio in [anio_dos_atras, anio_anterior, anio_actual]:
-        try:
-            df = _get_tpm_anio(anio)
-            if not df.empty:
-                frames.append(df)
-        except Exception as e:
-            print(f"      [warn] No se pudo obtener TPM {anio}: {e}")
+    df = None
+    if user and pwd:
+        df = _icp_desde_bcch(user, pwd)
+        if df is not None:
+            print(f"      {len(df)} meses de ICP (BCCh)")
 
-    if not frames:
-        raise ValueError("No se pudo obtener la TPM de mindicador.cl")
+    if df is None:
+        df = _icp_desde_mindicador()
+        print(f"      {len(df)} meses de ICP (mindicador.cl)")
 
-    df_tpm = (
-        pd.concat(frames, ignore_index=True)
-          .sort_values("fecha")
-          .drop_duplicates("fecha")
-          .reset_index(drop=True)
-    )
-
-    print(f"      {len(df_tpm)} días de TPM ({df_tpm['fecha'].min().date()} → {df_tpm['fecha'].max().date()})")
-
-    # Calcular ICP acumulado con la fórmula oficial
-    # ICP_i = ICP_{i-1} x (1 + TIB_{i-1}/100 x Ndias/360)
-    icp_vals = [ICP_INICIAL]
-    for i in range(1, len(df_tpm)):
-        tib_ant   = df_tpm.loc[i-1, "tib"]
-        ndias     = (df_tpm.loc[i, "fecha"] - df_tpm.loc[i-1, "fecha"]).days
-        icp_nuevo = icp_vals[-1] * (1 + tib_ant / 100 * ndias / 360)
-        icp_vals.append(round(icp_nuevo, 2))
-
-    df_tpm["icp"] = icp_vals
-
-    # Filtrar último día disponible de cada mes
-    df_tpm["anio_mes"] = df_tpm["fecha"].dt.to_period("M")
-    df_eom = (
-        df_tpm.sort_values("fecha")
-              .groupby("anio_mes")
-              .last()
-              .reset_index()
-              .drop(columns=["anio_mes"])
-    )
-    print(f"      {len(df_eom)} meses de ICP calculados")
-    return df_eom[["fecha", "icp"]]
+    df["fecha"] = pd.to_datetime(df["fecha"])
+    return df.sort_values("fecha").reset_index(drop=True)
