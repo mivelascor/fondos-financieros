@@ -1,18 +1,16 @@
-"""
-main.py — Orquestador principal del sistema de folletos Vantrust.
-"""
+"""main.py — Orquestador principal del sistema de folletos Vantrust."""
 import sys, os, zipfile, base64, requests
 from datetime import date, timedelta
 from pathlib import Path
 import pandas as pd
 
 from config import (FONDOS_CON_FOLLETO, OUTPUT_DIR, GITHUB_TOKEN,
-                    GITHUB_REPO, GITHUB_BRANCH, get_info_fondo)
+                    GITHUB_REPO, GITHUB_BRANCH, get_info_fondo, MESES_ES)
 from etl.sql_extractor  import get_valores_cuota_eom
 from etl.excel_reader   import get_cartera_composicion
 from etl.icp_bcch       import get_icp_eom
 from etl.cmf_scraper    import get_competencia_clp, get_competencia_usd, update_historico
-from calculos.rentabilidades import (calcular_rent_mensual, normalizar_b1000,
+from calculos.rentabilidades import (normalizar_b1000,
                                      construir_tabla_rentabilidades,
                                      construir_tabla_historica, DIVIDENDOS)
 from generador.pptx_builder import generar_pptx
@@ -23,8 +21,12 @@ def _fecha_referencia():
     hoy = date.today()
     return hoy.replace(day=1) - timedelta(days=1)
 
+def _periodo_es(fd: date) -> str:
+    return f"{MESES_ES[fd.month]} {fd.year}"
+
 def _github_put(file_path, repo_path, msg):
-    h = {"Authorization": f"Bearer {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+    h = {"Authorization": f"Bearer {GITHUB_TOKEN}",
+         "Accept": "application/vnd.github+json"}
     api = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{repo_path}"
     r = requests.get(api, headers=h, timeout=30)
     sha = r.json().get("sha") if r.status_code == 200 else None
@@ -40,7 +42,7 @@ def _github_put(file_path, repo_path, msg):
 def run(comentario_clp: str, comentario_usd: str):
     fd      = _fecha_referencia()
     mes_str = fd.strftime("%Y-%m")
-    periodo = fd.strftime("%B %Y").capitalize()
+    periodo = _periodo_es(fd)
     fd_ts   = pd.Timestamp(fd)
 
     print(f"\n{'='*60}")
@@ -49,19 +51,20 @@ def run(comentario_clp: str, comentario_usd: str):
     print(f"{'='*60}\n")
 
     print("[1/5] Obteniendo datos...")
+
     print("  -> Valor cuota (API SQL)")
     df_vc = get_valores_cuota_eom()
 
-    print("  -> ICP (mindicador.cl)")
+    print("  -> ICP (mindicador.cl - historico completo)")
     df_icp = get_icp_eom()
     icp_serie = pd.Series(df_icp["icp"].values,
                           index=pd.DatetimeIndex(df_icp["fecha"])).sort_index()
-    print(f"      {len(df_icp)} meses de ICP")
+    print(f"      {len(df_icp)} meses de ICP ({df_icp['fecha'].min().year}-{df_icp['fecha'].max().year})")
 
     print("  -> Competencia CMF")
     df_comp_clp, val_clp_nuevo, fecha_clp_nueva = get_competencia_clp()
     df_comp_usd, val_usd_nuevo, fecha_usd_nueva = get_competencia_usd()
-    print(f"      CLP: {len(df_comp_clp)} | USD: {len(df_comp_usd)}")
+    print(f"      CLP: {len(df_comp_clp)} meses | USD: {len(df_comp_usd)} meses")
 
     comp_clp_serie = (pd.Series(df_comp_clp["valor_cuota"].values,
                                 index=pd.DatetimeIndex(df_comp_clp["fecha"])).sort_index()
@@ -109,8 +112,7 @@ def run(comentario_clp: str, comentario_usd: str):
                 serie_vc, comp_serie, icp_serie, nombre_fondo, fd_ts)
 
             comp_cartera = get_cartera_composicion(nombre_fondo)
-            info         = get_info_fondo(nombre_fondo, moneda,
-                                          fecha_inicio.strftime("%B %Y").capitalize())
+            info         = get_info_fondo(nombre_fondo, moneda, fecha_inicio)
 
             pptx_path = pptx_dir / f"{nombre_fondo.replace(' ', '_')}.pptx"
             generar_pptx(

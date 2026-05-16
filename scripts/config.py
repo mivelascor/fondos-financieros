@@ -5,7 +5,6 @@ from pathlib import Path
 BASE_DIR        = Path(__file__).parent
 INPUTS_DIR      = BASE_DIR.parent / "inputs"
 OUTPUT_DIR      = BASE_DIR.parent / "folletos"
-TEMPLATE_PPTX   = BASE_DIR / "templates" / "folleto_template_clean.pptx"
 ARCHIVO_CARTERA = INPUTS_DIR / "cartera.xlsx"
 
 GITHUB_TOKEN  = os.environ.get("GH_TOKEN", "")
@@ -14,8 +13,15 @@ GITHUB_BRANCH = "main"
 
 LIBREOFFICE_PATH = "/usr/bin/libreoffice"
 
-CMF_COMP_CLP = {"nombre": "FONDO MUTUO SANTANDER MONEY MARKET", "rut": "8057", "row": "AAAw cAAhAAAACcAAs"}
-CMF_COMP_USD = {"nombre": "FONDO MUTUO BANCHILE CORPORATE DOLLAR", "rut": "8248", "row": ""}
+CMF_COMP_CLP = {"nombre": "FONDO MUTUO SANTANDER MONEY MARKET",   "rut": "8057"}
+CMF_COMP_USD = {"nombre": "FONDO MUTUO BANCHILE CORPORATE DOLLAR", "rut": "8248"}
+
+# Meses en español (para fechas de inicio de fondos)
+MESES_ES = {
+    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
+    5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+    9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+}
 
 FONDOS_CON_FOLLETO = [
     "FIP VANTRUST LIQUIDEZ ACTIVA",
@@ -48,12 +54,12 @@ INFO_POR_FONDO = {
     "FIP VANTRUST LIQUIDEZ I": {
         "rut": "77.155.267-6",
         "remuneracion": "0,295% IVA Incluido",
-        "fecha_inicio": "Abril 2020",
+        "fecha_inicio_fija": "Abril 2020",
     },
     "FIP VANTRUST LIQUIDEZ RESERVA DOLAR": {
         "rut": "76.637.335-6",
         "remuneracion": "0,50% TPM + IVA",
-        "fecha_inicio": "Febrero 2025",
+        "fecha_inicio_fija": "Febrero 2025",
     },
 }
 
@@ -64,12 +70,21 @@ INFO_DEFAULT = {
     "benchmark":      "Índice Cámara Promedio (ICP)",
     "plazo_rescate":  "A más tardar 15 días corridos",
     "remuneracion":   "0,295% IVA Incluido",
-    "fecha_inicio":   "",
 }
 
-def get_info_fondo(nombre: str, moneda: str, fecha_inicio_str: str) -> dict:
+import pandas as pd
+
+def fecha_inicio_es(ts: pd.Timestamp) -> str:
+    """Retorna la fecha de inicio en español: 'Julio 2025'"""
+    return f"{MESES_ES[ts.month]} {ts.year}"
+
+def get_info_fondo(nombre: str, moneda: str, fecha_inicio_ts: pd.Timestamp) -> dict:
     info = dict(INFO_DEFAULT)
     info.update(INFO_POR_FONDO.get(nombre, {}))
     info["moneda"] = moneda
-    info["fecha_inicio"] = fecha_inicio_str or info.get("fecha_inicio", "")
+    # Usar fecha fija si está definida, si no calcularla en español
+    if "fecha_inicio_fija" in info:
+        info["fecha_inicio"] = info.pop("fecha_inicio_fija")
+    else:
+        info["fecha_inicio"] = fecha_inicio_es(fecha_inicio_ts)
     return info
