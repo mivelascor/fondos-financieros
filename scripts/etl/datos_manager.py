@@ -319,17 +319,20 @@ def actualizar_y_calcular(
                 meses_json = data[tipo].get("meses", [])
                 for m_idx, v in enumerate(meses_json):
                     key = (año, m_idx + 1)
-                    if key not in result and v is not None:
-                        result[key] = float(v) / 100  # el JSON guarda en %
+                    if key not in result and v is not None and v != 0:
+                        result[key] = float(v)  # ya está en decimal (ej: 0.004454 = 0.4454%)
         return result
 
     ri = completar(ri, "icp")
     rc = completar(rc, "comp")
     rf = completar(rf, "fip")
 
-    # Construir lista de años
+    # Determinar el año de inicio real del FIP (primer año con datos reales, no 0)
+    fip_años_reales = [k[0] for k, v in rf.items() if v is not None and v != 0]
+    anio_inicio_fip = min(fip_años_reales) if fip_años_reales else fecha_fin.year
+
+    # Todos los años disponibles en cualquiera de las 3 series
     todos_años = sorted(set(k[0] for k in list(ri) + list(rc) + list(rf)))
-    anio_inicio_fip = min((k[0] for k in rf), default=fecha_fin.year)
 
     historico_list = []
     for año in todos_años:
