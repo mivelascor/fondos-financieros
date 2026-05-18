@@ -98,20 +98,27 @@ def _scrape_cmf(url: str) -> tuple[float | None, str | None]:
         return None, None
 
 
+def _serie_desde_dict(d: dict) -> pd.Series:
+    """Crea una pd.Series con DatetimeIndex garantizado desde un dict fecha→valor."""
+    s = pd.Series(d, dtype=float)
+    s.index = pd.to_datetime(s.index)
+    s.index = pd.DatetimeIndex(s.index)
+    return s.sort_index()
+
+
 def get_competencia_clp() -> pd.Series:
     """Retorna serie de valores cuota EOM de la competencia CLP."""
     val, fecha = _scrape_cmf(CMF_URL_CLP)
     hist = dict(VC_CLP_HIST)
     if val and fecha:
-        # Añadir el nuevo valor
         try:
-            f = pd.to_datetime(fecha, dayfirst=True)
+            f   = pd.to_datetime(fecha, dayfirst=True)
             key = f.strftime("%Y-%m-%d")
             hist[key] = val
-            print(f"    CMF CLP scraping: {key} = {val:.4f}")
+            print(f"    CMF CLP: {key} = {val:.4f}")
         except Exception:
             pass
-    return pd.Series(hist, dtype=float).rename(index=pd.to_datetime)
+    return _serie_desde_dict(hist)
 
 
 def get_competencia_usd() -> pd.Series:
@@ -120,13 +127,13 @@ def get_competencia_usd() -> pd.Series:
     hist = dict(VC_USD_HIST)
     if val and fecha:
         try:
-            f = pd.to_datetime(fecha, dayfirst=True)
+            f   = pd.to_datetime(fecha, dayfirst=True)
             key = f.strftime("%Y-%m-%d")
             hist[key] = val
-            print(f"    CMF USD scraping: {key} = {val:.4f}")
+            print(f"    CMF USD: {key} = {val:.4f}")
         except Exception:
             pass
-    return pd.Series(hist, dtype=float).rename(index=pd.to_datetime)
+    return _serie_desde_dict(hist)
 
 
 def get_icp_nivel_serie() -> pd.Series:
@@ -140,7 +147,7 @@ def get_icp_nivel_serie() -> pd.Series:
             r = requests.get(f"{MINDICADOR}/{y}", timeout=15)
             for item in r.json().get("serie", []):
                 all_data.append({
-                    "fecha": pd.to_datetime(item["fecha"]),
+                    "fecha": pd.to_datetime(item["fecha"]).tz_localize(None) if pd.to_datetime(item["fecha"]).tzinfo is None else pd.to_datetime(item["fecha"]).tz_convert(None),
                     "tpm":   float(item["valor"])
                 })
         except Exception:
@@ -241,28 +248,37 @@ def actualizar_y_calcular(
     acum_label   = hist_fondo.get("acum_label", f"Acum. {fecha_fin.year} (*)")
 
     # ── Construir series de niveles EOM para los 3 indicadores ─────────────
+    # Garantizar DatetimeIndex en todas las series de entrada
+    def _ensure_dti(s: pd.Series) -> pd.Series:
+        if s.empty: return s
+        s = s.copy()
+        s.index = pd.DatetimeIndex(pd.to_datetime(s.index))
+        return s.sort_index()
+
     # ICP: ya viene como niveles desde get_icp_nivel_serie()
-    nivel_icp  = icp_serie.sort_index()
+    nivel_icp  = _ensure_dti(icp_serie)
     nivel_icp  = nivel_icp[nivel_icp.index <= fecha_fin]
 
     # Competencia: nivel = VC_EOM (valores cuota ya son mensuales EOM)
-    nivel_comp = _eom_niveles(comp_serie, 0.0)
+    nivel_comp = _eom_niveles(_ensure_dti(comp_serie), 0.0)
     nivel_comp = nivel_comp[nivel_comp.index <= fecha_fin]
 
     # FIP: nivel = VC_EOM + dividendos. Obtener VC del API SQL.
     serie_vc_fip = get_vc_fondo(nombre_fondo)
-    nivel_fip    = _eom_niveles(serie_vc_fip, div)
+    nivel_fip    = _eom_niveles(_ensure_dti(serie_vc_fip), div)
     nivel_fip    = nivel_fip[nivel_fip.index <= fecha_fin]
 
     # Si la API SQL no tiene datos del FIP, intentar reconstruir desde los niveles del JSON
     if nivel_fip.empty:
         niv_json = hist_fondo.get("niveles", [])
         if niv_json:
-            fip_niv = [(pd.Timestamp(n["fecha"]), n["fip"]) for n in niv_json if n.get("fip")]
+            fip_niv = [(pd.Timestamp(n["fecha"]), n["fip"])
+                       for n in niv_json if n.get("fip")]
             if fip_niv:
-                serie_niv = pd.Series([v for _, v in fip_niv],
-                                      index=pd.DatetimeIndex([f for f, _ in fip_niv]))
-                # Restar dividendos para obtener VC y luego recalcular
+                serie_niv = pd.Series(
+                    [v for _, v in fip_niv],
+                    index=pd.DatetimeIndex([f for f, _ in fip_niv])
+                )
                 nivel_fip = _eom_niveles(serie_niv - div, div)
                 nivel_fip = nivel_fip[nivel_fip.index <= fecha_fin]
 
