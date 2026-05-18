@@ -20,7 +20,7 @@ def generar_pptx(nombre_fondo, periodo_str, comentario_pm,
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    nombre_corto = nombre_fondo.replace("FIP VANTRUST LIQUIDEZ ","").replace("FIP VANTRUST ","").title()
+    nombre_corto = nombre_fondo.replace("FIP VANTRUST ", "").title()
     anio_actual  = periodo_str.split(" ")[-1] if " " in periodo_str else "2026"
 
     # Resumen: extraer los valores string de la tabla

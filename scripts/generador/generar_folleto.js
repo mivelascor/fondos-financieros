@@ -1,80 +1,70 @@
 /**
- * generar_folleto.js
- * Genera PPTX fiel al HTML de referencia (FIP_Alto_Aporte__1_.html).
- * Layout: A4 portrait, 2 columnas. Col izq 68mm negra, Col der contenido.
+ * generar_folleto.js — Folleto comercial Vantrust.
+ * Fiel al HTML de referencia (FIP_Alto_Aporte__1_.html).
+ * Layout A4 portrait: col izq 68mm (negra), col der contenido.
  */
 "use strict";
 const pptxgen = require("pptxgenjs");
 const fs = require("fs");
 
-/* ─── CONSTANTES ─────────────────────────────────────────────────────────── */
 const C = { negro:"000000", blanco:"FFFFFF", grisOsc:"333333",
             grisMed:"666666", grisClr:"999999", grisLin:"DDDDDD" };
 const W=8.27, H=11.69;
 const IZQ=2.68, DER=2.85, DER_W=W-DER-0.15, P=0.13;
 
-/* ─── HELPERS ────────────────────────────────────────────────────────────── */
-function pct(v,d=2){
-  // Acepta float o string formateado (ej: "0,59%")
-  if(v===null||v===undefined) return "—";
-  if(typeof v==="string") return v;
-  if(isNaN(v)) return "—";
+function pct(v, d=2) {
+  if (v===null||v===undefined) return "—";
+  if (typeof v==="string") return v;   // ya formateado desde Python
+  if (isNaN(v)) return "—";
   return (v*100).toFixed(d)+"%";
 }
-
 function lin(sl,y,x=DER,w=DER_W,col=C.grisLin,pt=0.5){
   sl.addShape("line",{x,y,w,h:0,line:{color:col,width:pt}});
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   SLIDE 1
-   ═══════════════════════════════════════════════════════════════════════════ */
-function slide1(pres,d){
-  const sl=pres.addSlide();
-  sl.background={color:C.blanco};
+/* ── SLIDE 1 ─────────────────────────────────────────────────────────────── */
+function slide1(pres, d) {
+  const sl = pres.addSlide();
+  sl.background = {color:C.blanco};
 
-  /* ── COLUMNA IZQUIERDA ───────────────────────────────────────────────── */
+  /* ── COL IZQUIERDA ─────────────────────────────────────────────────── */
   sl.addShape("rect",{x:0,y:0,w:IZQ,h:1.9,fill:{color:C.negro}});
-  const ws=d.nombre_corto.split(" ");
-  const l1=ws.length>1?ws.slice(0,-1).join(" "):ws[0];
-  const l2=ws.length>1?ws[ws.length-1]:"";
-  sl.addText(l2?`${l1}\n${l2}`:l1,{x:P,y:0.18,w:IZQ-P*2,h:1.3,
-    fontSize:22,bold:true,color:C.blanco,fontFace:"Calibri",valign:"top",wrap:true,margin:0});
+
+  // Título: "Liquidez\nActiva" — siempre 2 palabras en nombre_corto
+  const words = (d.nombre_corto||"").split(" ");
+  const l1 = words.slice(0,-1).join(" ") || words[0];
+  const l2 = words.length > 1 ? words[words.length-1] : "";
+  sl.addText(l2 ? `${l1}\n${l2}` : l1, {
+    x:P,y:0.18,w:IZQ-P*2,h:1.3,
+    fontSize:22,bold:true,color:C.blanco,fontFace:"Calibri",
+    valign:"top",wrap:true,margin:0
+  });
   sl.addText("F O N D O",{x:P,y:1.56,w:IZQ-P*2,h:0.18,
     fontSize:7,color:"AAAAAA",fontFace:"Calibri",charSpacing:4,margin:0});
   sl.addShape("line",{x:IZQ,y:0,w:0,h:H,line:{color:"EEEEEE",width:0.5}});
 
   let y=2.0;
   const LW=IZQ-P*2;
-
-  function secL(tit){
-    sl.addText(tit,{x:P,y,w:LW,h:0.18,fontSize:8,bold:true,color:C.negro,fontFace:"Calibri",margin:0});
-    y+=0.2;
-    sl.addShape("line",{x:P,y,w:LW,h:0,line:{color:C.negro,width:1}});
-    y+=0.07;
-  }
-  function divL(){
-    sl.addShape("line",{x:P,y,w:LW,h:0,line:{color:C.grisLin,width:0.5}});
-    y+=0.1;
-  }
-  function filaInfo(k,v,h=0.17){
+  function secL(t){ sl.addText(t,{x:P,y,w:LW,h:0.18,fontSize:8,bold:true,color:C.negro,fontFace:"Calibri",margin:0}); y+=0.2; sl.addShape("line",{x:P,y,w:LW,h:0,line:{color:C.negro,width:1}}); y+=0.07; }
+  function divL(){ sl.addShape("line",{x:P,y,w:LW,h:0,line:{color:C.grisLin,width:0.5}}); y+=0.1; }
+  function fi(k,v,h=0.17){
     sl.addText(k,{x:P,y,w:1.0,h,fontSize:6.5,bold:true,color:C.negro,fontFace:"Calibri",valign:"top",margin:0,wrap:true});
     sl.addText(v||"",{x:P+1.02,y,w:LW-1.02,h,fontSize:6.5,color:"555555",fontFace:"Calibri",valign:"top",margin:0,wrap:true});
     y+=h+0.02;
   }
 
   secL("Información General");
-  filaInfo("Administradora",d.administradora);
-  filaInfo("RUT Fondo",d.rut);
-  filaInfo("Moneda",d.moneda);
-  filaInfo("Tipo de Fondo",d.tipo);
-  filaInfo("Fecha Inicio",d.fecha_inicio);
-  filaInfo("Benchmark",d.benchmark);
-  filaInfo("Fondo Rescatable","Sí");
-  filaInfo("Plazo Rescate",d.plazo_rescate);
-  filaInfo("Riesgos","Mercado- Crédito - Liquidez - Tasa de interés - Derivados",0.27);
-  filaInfo("Remuneración",d.remuneracion||"0,295% IVA Incluido",0.27);
-  filaInfo("Custodio","Vantrust Capital C. de Bolsa");
+  fi("Administradora",d.administradora);
+  fi("RUT Fondo",d.rut);
+  fi("Moneda",d.moneda);
+  fi("Tipo de Fondo",d.tipo);
+  fi("Fecha Inicio",d.fecha_inicio);
+  fi("Benchmark",d.benchmark);
+  fi("Fondo Rescatable","Sí");
+  fi("Plazo Rescate",d.plazo_rescate);
+  fi("Riesgos","Mercado- Crédito - Liquidez - Tasa de interés - Derivados",0.27);
+  fi("Remuneración",d.remuneracion||"0,295% IVA Incluido",0.27);
+  fi("Custodio","Vantrust Capital C. de Bolsa");
   divL();
 
   secL("Objetivo");
@@ -91,29 +81,25 @@ function slide1(pres,d){
   sl.addText(d.inversionistas||"Dirigida a empresas y personas que buscan invertir sus excedentes de caja con una rentabilidad de corto plazo y baja tolerancia al riesgo.",
     {x:P,y,w:LW,h:0.55,fontSize:7,color:"555555",fontFace:"Calibri",valign:"top",margin:0,wrap:true});
 
-  /* ── COLUMNA DERECHA ────────────────────────────────────────────────── */
+  /* ── COL DERECHA ───────────────────────────────────────────────────── */
   let yr=0.15;
 
   // Comentario PM
-  sl.addText("Comentario Portafolio Manager",
-    {x:DER,y:yr,w:DER_W,h:0.27,fontSize:13,bold:true,color:C.negro,fontFace:"Calibri",margin:0});
+  sl.addText("Comentario Portafolio Manager",{x:DER,y:yr,w:DER_W,h:0.27,fontSize:13,bold:true,color:C.negro,fontFace:"Calibri",margin:0});
   yr+=0.3; lin(sl,yr,DER,DER_W,C.negro,1.5); yr+=0.1;
-  sl.addText(d.comentario||"",
-    {x:DER,y:yr,w:DER_W,h:1.8,fontSize:8,color:C.grisOsc,fontFace:"Calibri",
-     valign:"top",margin:0,wrap:true,align:"justify"});
+  sl.addText(d.comentario||"",{x:DER,y:yr,w:DER_W,h:1.8,fontSize:8,color:C.grisOsc,fontFace:"Calibri",valign:"top",margin:0,wrap:true,align:"justify"});
   yr+=1.9;
 
-  // Gráfico base 1000 (como el HTML: normaliza desde la primera fecha disponible)
-  const chartD=buildChart(d);
-  if(chartD.labels.length>0){
-    sl.addText(d.nombre_corto,
-      {x:DER,y:yr,w:DER_W,h:0.16,fontSize:7.5,bold:true,color:C.negro,fontFace:"Calibri",align:"center",margin:0});
+  // Gráfico
+  const cd = buildChart(d);
+  if (cd.labels.length > 0) {
+    sl.addText(d.nombre_corto||"",{x:DER,y:yr,w:DER_W,h:0.16,fontSize:7.5,bold:true,color:C.negro,fontFace:"Calibri",align:"center",margin:0});
     yr+=0.17;
     const series=[];
-    if(chartD.icp.some(v=>v!==null))  series.push({name:"ICP Nom.",     labels:chartD.labels,values:chartD.icp});
-    if(chartD.fip.some(v=>v!==null))  series.push({name:d.nombre_fip||"FIP",labels:chartD.labels,values:chartD.fip});
-    if(chartD.comp.some(v=>v!==null)) series.push({name:"Competencia Relevante (*)",labels:chartD.labels,values:chartD.comp});
-    if(series.length){
+    if(cd.icp.some(v=>v!==null))  series.push({name:"ICP Nom.",labels:cd.labels,values:cd.icp});
+    if(cd.fip.some(v=>v!==null))  series.push({name:d.nombre_fip||"FIP",labels:cd.labels,values:cd.fip});
+    if(cd.comp.some(v=>v!==null)) series.push({name:"Competencia Relevante (*)",labels:cd.labels,values:cd.comp});
+    if (series.length) {
       const allV=series.flatMap(s=>s.values).filter(v=>v!==null&&!isNaN(v));
       sl.addChart("line",series,{
         x:DER,y:yr,w:DER_W,h:1.85,
@@ -122,7 +108,7 @@ function slide1(pres,d){
         showLegend:true,legendPos:"r",legendFontSize:6,
         catAxisLabelFontSize:6,valAxisLabelFontSize:6,
         catAxisLabelColor:C.grisMed,valAxisLabelColor:C.grisMed,
-        catAxisLabelFrequency:Math.max(1,Math.floor(chartD.labels.length/10)),
+        catAxisLabelFrequency:Math.max(1,Math.floor(cd.labels.length/10)),
         valGridLine:{color:"EEEEEE",size:0.3},catGridLine:{style:"none"},
         chartArea:{fill:{color:C.blanco}},plotArea:{fill:{color:C.blanco}},showTitle:false,
         valAxisMinVal:allV.length?Math.floor(Math.min(...allV)*0.97):90,
@@ -132,27 +118,23 @@ function slide1(pres,d){
   }
 
   // Evolución Rentabilidad
-  sl.addText("Evolución Rentabilidad",
-    {x:DER,y:yr,w:DER_W,h:0.25,fontSize:13,bold:true,color:C.negro,fontFace:"Calibri",margin:0});
+  sl.addText("Evolución Rentabilidad",{x:DER,y:yr,w:DER_W,h:0.25,fontSize:13,bold:true,color:C.negro,fontFace:"Calibri",margin:0});
   yr+=0.28; lin(sl,yr,DER,DER_W,C.negro,1.5); yr+=0.08;
 
-  // Tabla resumen (3 filas: ICP, Competencia, FIP)
+  // Tabla resumen (3 filas fijas: ICP, Competencia, FIP)
   const r=d.resumen||{};
-  const acumDisplay=`Acum.\n${d.anio_acum||"2026"} (*)`;
+  const acumLbl=`Acum.\n${d.anio_acum||"2026"} (*)`;
   const colW=[1.42,0.62,0.72,0.72,0.62,0.65];
   const bTop=[{pt:1.5,color:C.negro},{pt:0.3,color:C.grisLin},{pt:1.5,color:C.negro},{pt:0.3,color:C.grisLin}];
   const bRow=[{pt:0.3,color:C.grisLin},{pt:0.3,color:C.grisLin},{pt:0.3,color:C.grisLin},{pt:0.3,color:C.grisLin}];
-  const mkH=(t,l=false)=>({text:t,options:{bold:true,fontSize:7.5,fontFace:"Calibri",
-    align:l?"left":"center",color:C.negro,fill:{color:C.blanco},border:bTop}});
-  const mkD=(t,l=false,bg="FFFFFF")=>({text:String(t||"—"),options:{fontSize:7.5,
-    fontFace:"Calibri",align:l?"left":"center",color:l?C.negro:C.grisOsc,
-    bold:l,fill:{color:bg},border:bRow}});
+  const mkH=(t,l=false)=>({text:t,options:{bold:true,fontSize:7.5,fontFace:"Calibri",align:l?"left":"center",color:C.negro,fill:{color:C.blanco},border:bTop}});
+  const mkD=(t,l=false,bg="FFFFFF")=>({text:String(t||"—"),options:{fontSize:7.5,fontFace:"Calibri",align:l?"left":"center",color:l?C.negro:C.grisOsc,bold:l,fill:{color:bg},border:bRow}});
 
   sl.addTable([
-    [mkH("Rentabilidad",true),mkH("Mensual"),mkH("Trimestral"),mkH("Semestral"),mkH("Anual"),mkH(acumDisplay)],
-    [mkD("ICP (Benchmark)",true,"F9F9F9"), mkD(r.icp?.m),  mkD(r.icp?.t),  mkD(r.icp?.s),  mkD(r.icp?.a),  mkD(r.icp?.ac)],
-    [mkD("Competencia",true),             mkD(r.comp?.m), mkD(r.comp?.t), mkD(r.comp?.s), mkD(r.comp?.a), mkD(r.comp?.ac)],
-    [mkD(d.nombre_fip||"FIP",true,"F9F9F9"), mkD(r.fip?.m), mkD(r.fip?.t), mkD(r.fip?.s), mkD(r.fip?.a), mkD(r.fip?.ac)],
+    [mkH("Rentabilidad",true),mkH("Mensual"),mkH("Trimestral"),mkH("Semestral"),mkH("Anual"),mkH(acumLbl)],
+    [mkD("ICP (Benchmark)",true,"F9F9F9"),mkD(r.icp?.m),mkD(r.icp?.t),mkD(r.icp?.s),mkD(r.icp?.a),mkD(r.icp?.ac)],
+    [mkD("Competencia",true),            mkD(r.comp?.m),mkD(r.comp?.t),mkD(r.comp?.s),mkD(r.comp?.a),mkD(r.comp?.ac)],
+    [mkD(d.nombre_fip||"FIP",true,"F9F9F9"),mkD(r.fip?.m),mkD(r.fip?.t),mkD(r.fip?.s),mkD(r.fip?.a),mkD(r.fip?.ac)],
   ],{x:DER,y:yr,w:DER_W,colW,rowH:0.2});
   yr+=4*0.2+0.05;
 
@@ -160,42 +142,42 @@ function slide1(pres,d){
     {x:DER,y:yr,w:DER_W,h:0.14,fontSize:6,color:C.grisClr,fontFace:"Calibri",italic:true,margin:0});
   yr+=0.18;
 
-  // Tabla histórica
-  if((d.historico||[]).length>0){
+  // Tabla histórica — desde el año inicio del FIP, cabe en el espacio restante
+  const hist = d.historico||[];
+  if (hist.length > 0) {
     lin(sl,yr,DER,DER_W,C.grisLin,0.5); yr+=0.07;
+
     const mL=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic","Total\nAño"];
     const cw=[0.22,0.90,0.27,0.27,0.27,0.27,0.27,0.27,0.27,0.27,0.27,0.27,0.27,0.27,0.31];
     const bH=[{pt:1.5,color:C.negro},{pt:0.2,color:"EEEEEE"},{pt:1.5,color:C.negro},{pt:0.2,color:"EEEEEE"}];
     const bD=[{pt:0.2,color:"EEEEEE"},{pt:0.2,color:"EEEEEE"},{pt:0.2,color:"EEEEEE"},{pt:0.2,color:"EEEEEE"}];
-    const mkTH=(t,l=false)=>({text:t,options:{fontSize:5.5,bold:true,fontFace:"Calibri",
-      color:C.negro,align:l?"left":"center",border:bH,wrap:false}});
+    const mkTH=(t,l=false)=>({text:t,options:{fontSize:5.5,bold:true,fontFace:"Calibri",color:C.negro,align:l?"left":"center",border:bH,wrap:false}});
+
+    // Calcular rowH dinámico para que todo quepa
+    const nAños = hist.length;
+    const nFilasTotal = 1 + hist.reduce((acc,row)=>
+      acc + 1 + (row.comp!==null?1:0) + (row.fip!==null?1:0), 0);
+    const espacioDisponible = H - yr - 0.05;
+    const rowH = Math.min(0.13, Math.max(0.09, espacioDisponible / nFilasTotal));
+
     const trows=[[mkTH("Año",true),mkTH("Fondo",true),...mL.map(m=>mkTH(m))]];
 
-    (d.historico||[]).forEach(row=>{
+    hist.forEach(row=>{
+      const icpC="777777", compC="999999";
       // ICP
-      const icpC="777777";
       trows.push([
         {text:String(row.año),options:{fontSize:5,bold:true,fontFace:"Calibri",color:C.negro,align:"left",border:bD,wrap:false}},
         {text:"ICP",options:{fontSize:5,fontFace:"Calibri",color:icpC,align:"left",border:bD,wrap:false}},
-        ...(row.icp||Array(12).fill(null)).map(v=>({
-          text:v!==null?pct(v):"",
-          options:{fontSize:5,fontFace:"Calibri",color:icpC,align:"center",border:bD,wrap:false}
-        })),
-        {text:row.icpT!==null&&row.icpT!==undefined?pct(row.icpT):"—",
-         options:{fontSize:5,bold:true,fontFace:"Calibri",color:icpC,align:"center",border:bD,wrap:false}}
+        ...(row.icp||Array(12).fill(null)).map(v=>({text:v!==null?pct(v):"",options:{fontSize:5,fontFace:"Calibri",color:icpC,align:"center",border:bD,wrap:false}})),
+        {text:row.icpT!==null&&row.icpT!==undefined?pct(row.icpT):"—",options:{fontSize:5,bold:true,fontFace:"Calibri",color:icpC,align:"center",border:bD,wrap:false}}
       ]);
       // Competencia
       if(row.comp!==null&&row.comp!==undefined){
-        const compC="999999";
         trows.push([
           {text:"",options:{fontSize:5,fontFace:"Calibri",color:C.negro,align:"left",border:bD,wrap:false}},
           {text:"Competencia",options:{fontSize:5,fontFace:"Calibri",color:compC,align:"left",border:bD,wrap:false}},
-          ...(row.comp||Array(12).fill(null)).map(v=>({
-            text:v!==null?pct(v):"",
-            options:{fontSize:5,fontFace:"Calibri",color:compC,align:"center",border:bD,wrap:false}
-          })),
-          {text:row.compT!==null&&row.compT!==undefined?pct(row.compT):"—",
-           options:{fontSize:5,bold:true,fontFace:"Calibri",color:compC,align:"center",border:bD,wrap:false}}
+          ...(row.comp||Array(12).fill(null)).map(v=>({text:v!==null?pct(v):"",options:{fontSize:5,fontFace:"Calibri",color:compC,align:"center",border:bD,wrap:false}})),
+          {text:row.compT!==null&&row.compT!==undefined?pct(row.compT):"—",options:{fontSize:5,bold:true,fontFace:"Calibri",color:compC,align:"center",border:bD,wrap:false}}
         ]);
       }
       // FIP
@@ -203,27 +185,21 @@ function slide1(pres,d){
         trows.push([
           {text:"",options:{fontSize:5,fontFace:"Calibri",color:C.negro,align:"left",border:bD,wrap:false}},
           {text:d.nombre_fip||"FIP",options:{fontSize:5,fontFace:"Calibri",color:C.negro,align:"left",border:bD,wrap:false}},
-          ...(row.fip||Array(12).fill(null)).map(v=>({
-            text:v!==null?pct(v):"",
-            options:{fontSize:5,fontFace:"Calibri",color:C.negro,align:"center",border:bD,wrap:false}
-          })),
-          {text:row.fipT!==null&&row.fipT!==undefined?pct(row.fipT):"—",
-           options:{fontSize:5,bold:true,fontFace:"Calibri",color:C.negro,align:"center",border:bD,wrap:false}}
+          ...(row.fip||Array(12).fill(null)).map(v=>({text:v!==null?pct(v):"",options:{fontSize:5,fontFace:"Calibri",color:C.negro,align:"center",border:bD,wrap:false}})),
+          {text:row.fipT!==null&&row.fipT!==undefined?pct(row.fipT):"—",options:{fontSize:5,bold:true,fontFace:"Calibri",color:C.negro,align:"center",border:bD,wrap:false}}
         ]);
       }
     });
-    sl.addTable(trows,{x:DER,y:yr,w:DER_W,colW:cw,rowH:0.13});
+
+    sl.addTable(trows,{x:DER,y:yr,w:DER_W,colW:cw,rowH});
   }
 }
 
-/* ─── GRÁFICO ───────────────────────────────────────────────────────────── */
-function buildChart(d){
-  // Igual al HTML: acumula rentabilidades desde el inicio del fondo, base 100
-  const labels=[], icpV=[], compV=[], fipV=[];
+/* ── GRÁFICO: base 1000 desde inicio del fondo ───────────────────────────── */
+function buildChart(d) {
   const fondo=d.b1000_fondo||[], icp=d.b1000_icp||[], comp=d.b1000_comp||[];
-
-  // Usar la serie b1000 ya calculada en Python (base 1000)
-  const ref=fondo.length>0?fondo:icp;
+  const ref = fondo.length>0 ? fondo : icp;
+  const labels=[], icpV=[], fipV=[], compV=[];
   ref.forEach((pt,i)=>{
     if(!pt) return;
     labels.push(pt.fecha||"");
@@ -234,57 +210,40 @@ function buildChart(d){
   return {labels,icp:icpV,fip:fipV,comp:compV};
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   SLIDE 2
-   ═══════════════════════════════════════════════════════════════════════════ */
-function slide2(pres,d){
-  const sl=pres.addSlide();
+/* ── SLIDE 2 ─────────────────────────────────────────────────────────────── */
+function slide2(pres, d) {
+  const sl = pres.addSlide();
   sl.background={color:C.blanco};
   sl.addShape("rect",{x:0,y:0,w:IZQ,h:1.45,fill:{color:C.negro}});
-  sl.addText("F O N D O",{x:P,y:1.12,w:IZQ-P*2,h:0.2,
-    fontSize:7,color:"AAAAAA",fontFace:"Calibri",charSpacing:4,margin:0});
+  sl.addText("F O N D O",{x:P,y:1.12,w:IZQ-P*2,h:0.2,fontSize:7,color:"AAAAAA",fontFace:"Calibri",charSpacing:4,margin:0});
   sl.addShape("line",{x:IZQ,y:0,w:0,h:H,line:{color:"EEEEEE",width:0.5}});
 
   let y=1.6;
   const LW=IZQ-P*2;
-  function secL(t){
-    sl.addText(t,{x:P,y,w:LW,h:0.18,fontSize:8,bold:true,color:C.negro,fontFace:"Calibri",margin:0});
-    y+=0.2;
-    sl.addShape("line",{x:P,y,w:LW,h:0,line:{color:C.negro,width:1}});
-    y+=0.08;
-  }
-  function divL(){
-    sl.addShape("line",{x:P,y,w:LW,h:0,line:{color:C.grisLin,width:0.5}});
-    y+=0.1;
-  }
+  function secL(t){ sl.addText(t,{x:P,y,w:LW,h:0.18,fontSize:8,bold:true,color:C.negro,fontFace:"Calibri",margin:0}); y+=0.2; sl.addShape("line",{x:P,y,w:LW,h:0,line:{color:C.negro,width:1}}); y+=0.08; }
+  function divL(){ sl.addShape("line",{x:P,y,w:LW,h:0,line:{color:C.grisLin,width:0.5}}); y+=0.1; }
   function rowL(lab,val){
-    const valStr=typeof val==="number"?((val*100).toFixed(2)+"%"):String(val||"");
+    const vs=typeof val==="number"?((val*100).toFixed(2)+"%"):String(val||"");
     sl.addText(String(lab),{x:P,y,w:1.5,h:0.19,fontSize:7.5,fontFace:"Calibri",margin:0,wrap:true});
-    sl.addText(valStr,{x:P+1.5,y,w:LW-1.5,h:0.19,fontSize:7.5,fontFace:"Calibri",align:"right",bold:true,margin:0});
+    sl.addText(vs,{x:P+1.5,y,w:LW-1.5,h:0.19,fontSize:7.5,fontFace:"Calibri",align:"right",bold:true,margin:0});
     y+=0.21;
   }
 
   secL("Composición por Moneda");
-  (d.comp_moneda||[]).forEach(([n,v])=>rowL(n,v));
-  if(!(d.comp_moneda||[]).length) rowL("—","—");
+  const mon=d.comp_moneda||[]; mon.length?mon.forEach(([n,v])=>rowL(n,v)):rowL("—","—");
   divL();
-
   secL("Composición por Instrumento");
-  (d.comp_instrumentos||[]).forEach(([n,v])=>rowL(n,v));
-  if(!(d.comp_instrumentos||[]).length) rowL("—","—");
+  const ins=d.comp_instrumentos||[]; ins.length?ins.forEach(([n,v])=>rowL(n,v)):rowL("—","—");
   divL();
-
   secL("Composición por Duración");
-  (d.comp_duracion||[]).forEach(([n,v])=>rowL(n,v));
-  if(!(d.comp_duracion||[]).length) rowL("—","—");
+  const dur=d.comp_duracion||[]; dur.length?dur.forEach(([n,v])=>rowL(n,v)):rowL("—","—");
 
-  /* ── Col der: Glosario + Disclaimer (TEXTO FIJO, NO CAMBIA) ─────────── */
+  /* ── Col der: Glosario + Disclaimer (TEXTO FIJO) ──────────────────── */
   let yr=0.15;
   sl.addText("Glosario",{x:DER,y:yr,w:DER_W,h:0.27,fontSize:13,bold:true,color:C.negro,fontFace:"Calibri",margin:0});
-  yr+=0.3;
-  sl.addShape("line",{x:DER,y:yr,w:DER_W,h:0,line:{color:C.negro,width:1.5}}); yr+=0.1;
+  yr+=0.3; sl.addShape("line",{x:DER,y:yr,w:DER_W,h:0,line:{color:C.negro,width:1.5}}); yr+=0.1;
 
-  [
+  const GL=[
     ["Riesgo de Mercado","Este es el riesgo de una variación adversa en el precio o tasa de mercado en los instrumentos en que invierte el Fondo"],
     ["Riesgo de Crédito","Es la posible pérdida que se asume como consecuencia del incumplimiento de las obligaciones directas, indirectas o de derivados que conllevan al no pago parcial, total o falta de oportunidad del pago de los emisores de los instrumentos en que invierte el Fondo y que pudieran ocasionar una pérdida financiera."],
     ["Riesgo de Liquidez","Riesgo asociado a la capacidad de generación de recursos del Fondo para cumplir con sus obligaciones de rescate o vencimiento del mismo."],
@@ -294,29 +253,23 @@ function slide2(pres,d){
     ["Riesgo Sectorial","Este riesgo está asociado a condiciones de mercado adversas que pueden afectar a un sector industrial en particular y por ende la rentabilidad del Fondo."],
     ["Gastos del fondo","Corresponden a los gastos directos e indirectos necesarios para el correcto funcionamiento del fondo los que están detallados en el Reglamento Interno"],
     ["Forma de Ingreso y Pago del Fondo","La moneda en que el inversionista entra al fondo es aportando pesos chilenos, y al rescate de las cuotas, el fondo le entrega pesos chilenos."],
-  ].forEach(([tit,desc])=>{
-    sl.addText([{text:tit,options:{bold:true,breakLine:true}},{text:desc}],
-      {x:DER,y:yr,w:DER_W,h:0.43,fontSize:7,color:C.grisOsc,fontFace:"Calibri",
-       valign:"top",margin:0,wrap:true});
+  ];
+  GL.forEach(([t,desc])=>{
+    sl.addText([{text:t,options:{bold:true,breakLine:true}},{text:desc}],
+      {x:DER,y:yr,w:DER_W,h:0.43,fontSize:7,color:C.grisOsc,fontFace:"Calibri",valign:"top",margin:0,wrap:true});
     yr+=0.46;
   });
-
-  yr+=0.08;
-  sl.addShape("line",{x:DER,y:yr,w:DER_W,h:0,line:{color:C.grisLin,width:0.5}}); yr+=0.14;
+  yr+=0.08; lin(sl,yr,DER,DER_W,C.grisLin,0.5); yr+=0.14;
   sl.addText("Disclaimer",{x:DER,y:yr,w:DER_W,h:0.25,fontSize:13,bold:true,color:C.negro,fontFace:"Calibri",margin:0});
-  yr+=0.28;
-  sl.addShape("line",{x:DER,y:yr,w:DER_W,h:0,line:{color:C.negro,width:1.5}}); yr+=0.1;
+  yr+=0.28; lin(sl,yr,DER,DER_W,C.negro,1.5); yr+=0.1;
   sl.addText("Conforme a la Ley Única de Fondos, las administradoras de fondos de inversión privados están sujetas a las obligaciones de información establecidas por la Comisión para el Mercado Financiero. Tales fondos no están sometidos a fiscalización de la Comisión y no hacemos oferta pública de sus cuotas.",
     {x:DER,y:yr,w:DER_W,h:0.7,fontSize:7.5,color:C.grisOsc,fontFace:"Calibri",valign:"top",margin:0,wrap:true});
 }
 
-/* ─── MAIN ──────────────────────────────────────────────────────────────── */
-async function main(){
+/* ── MAIN ────────────────────────────────────────────────────────────────── */
+async function main() {
   const ai=process.argv.indexOf("--data"), oi=process.argv.indexOf("--out");
-  if(ai===-1||oi===-1){
-    console.error("Uso: node generar_folleto.js --data datos.json --out output.pptx");
-    process.exit(1);
-  }
+  if(ai===-1||oi===-1){ console.error("Uso: node generar_folleto.js --data datos.json --out output.pptx"); process.exit(1); }
   const d=JSON.parse(fs.readFileSync(process.argv[ai+1],"utf8"));
   const pres=new pptxgen();
   pres.defineLayout({name:"A4P",width:8.27,height:11.69});
