@@ -1,9 +1,8 @@
 """
 calculos/rentabilidades.py
-Verificado contra templates Alto Aporte y Liquidez Uno (abril 2026).
 
-FÓRMULAS (todas verificadas):
-  nivel_FIP = VC_EOM + dividendos_historicos_acumulados
+Fórmulas verificadas contra los templates Excel (abril 2026):
+  nivel_FIP = VC_EOM + dividendos_historicos
   Mensual    = nivel_t   / nivel_{t-1}  - 1
   Trimestral = nivel_t   / nivel_{t-3}  - 1
   Semestral  = nivel_t   / nivel_{t-6}  - 1
@@ -45,7 +44,7 @@ DIVIDENDOS = {
 
 def _eom_niveles(serie_diaria: pd.Series, dividendos: float = 0.0) -> pd.Series:
     """
-    Convierte serie diaria de valor cuota a niveles EOM.
+    Convierte serie diaria de VC a niveles EOM.
     Nivel_t = VC_EOM_t + dividendos.
     Convención diciembre: usa el primer dato de enero siguiente (T+1).
     Retorna Serie con DatetimeIndex (fechas EOM).
@@ -65,11 +64,10 @@ def _eom_niveles(serie_diaria: pd.Series, dividendos: float = 0.0) -> pd.Series:
     return pd.Series(result).sort_index()
 
 
-def _calcular_5_indicadores(niveles: pd.Series,
-                             fecha_fin: pd.Timestamp) -> dict:
+def calcular_5_indicadores(niveles: pd.Series, fecha_fin: pd.Timestamp) -> dict:
     """
-    Calcula los 5 indicadores para fecha_fin dada.
-    Acum YTD base = ENERO del año en curso (igual para ICP, Comp y FIP).
+    Calcula los 5 indicadores para fecha_fin.
+    Acum YTD base = ENERO del año en curso (verificado contra templates).
     """
     n = niveles.sort_index()
     n = n[n.index <= fecha_fin]
@@ -77,148 +75,19 @@ def _calcular_5_indicadores(niveles: pd.Series,
         return {"m": None, "t": None, "s": None, "a": None, "ac": None}
 
     nivel_t = n.iloc[-1]
-
     def ratio(offset):
         idx = len(n) - 1 - offset
         return nivel_t / n.iloc[idx] - 1 if idx >= 0 else None
 
-    mensual    = ratio(1)
-    trimestral = ratio(3)
-    semestral  = ratio(6)
-    anual      = ratio(12)
+    anio   = fecha_fin.year
+    ene    = n[(n.index.year == anio) & (n.index.month == 1)]
+    n_mes  = len(n[n.index.year == anio])
+    ac     = (nivel_t / ene.iloc[0] - 1) / n_mes * 12 if not ene.empty and n_mes > 0 else None
 
-    # Acum YTD = (nivel_t / nivel_ene_año - 1) / n_meses * 12
-    anio     = fecha_fin.year
-    ene_año  = n[(n.index.year == anio) & (n.index.month == 1)]
-    n_meses  = len(n[n.index.year == anio])
-
-    if not ene_año.empty and n_meses > 0:
-        nivel_base = ene_año.iloc[0]
-        acum_ytd   = (nivel_t / nivel_base - 1) / n_meses * 12
-    else:
-        acum_ytd = None
-
-    return {"m": mensual, "t": trimestral, "s": semestral,
-            "a": anual, "ac": acum_ytd}
+    return {"m": ratio(1), "t": ratio(3), "s": ratio(6), "a": ratio(12), "ac": ac}
 
 
 def _fmt(v) -> str:
     if v is None or (isinstance(v, float) and (np.isnan(v) or np.isinf(v))):
         return "—"
-    return f"{v * 100:.2f}%".replace(".", ",")
-
-
-def calcular_resumen(serie_vc_fondo:  pd.Series,
-                     serie_nivel_icp:  pd.Series,
-                     serie_vc_comp:    pd.Series,
-                     nombre_fondo:     str,
-                     fecha_fin:        pd.Timestamp) -> pd.DataFrame:
-    """
-    Tabla resumen: 3 filas (ICP, Competencia, FIP) × 5 columnas.
-    Valores formateados como strings "X,XX%".
-    """
-    div          = DIVIDENDOS.get(nombre_fondo, 0.0)
-    nombre_serie = nombre_fondo.replace("FIP VANTRUST ", "FIP ")
-
-    nivel_fip  = _eom_niveles(serie_vc_fondo, div)
-    nivel_icp  = serie_nivel_icp   # ya es nivel acumulado EOM
-    nivel_comp = serie_vc_comp     # ya es valor cuota EOM
-
-    r_icp  = _calcular_5_indicadores(nivel_icp,  fecha_fin)
-    r_comp = _calcular_5_indicadores(nivel_comp, fecha_fin)
-    r_fip  = _calcular_5_indicadores(nivel_fip,  fecha_fin)
-
-    rows = []
-    for nombre, r in [("ICP (Benchmark)", r_icp),
-                      ("Competencia",     r_comp),
-                      (nombre_serie,      r_fip)]:
-        rows.append({
-            "nombre":     nombre,
-            "mensual":    _fmt(r["m"]),
-            "trimestral": _fmt(r["t"]),
-            "semestral":  _fmt(r["s"]),
-            "anual":      _fmt(r["a"]),
-            "ytd":        _fmt(r["ac"]),
-            "es_fondo":   nombre == nombre_serie,
-        })
-    return pd.DataFrame(rows)
-
-
-def calcular_historico(serie_vc_fondo:  pd.Series,
-                       serie_nivel_icp:  pd.Series,
-                       serie_vc_comp:    pd.Series,
-                       nombre_fondo:     str,
-                       fecha_fin:        pd.Timestamp) -> list:
-    """
-    Tabla histórica por año, desde el año de inicio del FIP.
-    Retorna lista de dicts: {año, icp:[12 floats/None], icpT, comp, compT, fip, fipT}
-    Total año = product(meses_año) - 1.
-    """
-    div          = DIVIDENDOS.get(nombre_fondo, 0.0)
-    nombre_serie = nombre_fondo.replace("FIP VANTRUST ", "FIP ")
-
-    nivel_fip  = _eom_niveles(serie_vc_fondo, div)
-    nivel_icp  = serie_nivel_icp
-    nivel_comp = serie_vc_comp
-
-    def rent_mensual(niveles: pd.Series) -> dict:
-        n = niveles.sort_index()
-        n = n[n.index <= fecha_fin]
-        if n.empty or len(n) < 2:
-            return {}
-        r = n.pct_change().dropna()
-        return {(ts.year, ts.month): float(v) for ts, v in r.items()}
-
-    ri = rent_mensual(nivel_icp)
-    rc = rent_mensual(nivel_comp)
-    rf = rent_mensual(nivel_fip)
-
-    # Solo mostrar desde el año de inicio del FIP
-    if not rf:
-        return []
-    anio_inicio_fip = min(k[0] for k in rf)
-    anio_fin        = fecha_fin.year
-
-    resultado = []
-    for anio in range(anio_inicio_fip, anio_fin + 1):
-        icp_m  = [ri.get((anio, m)) for m in range(1, 13)]
-        comp_m = [rc.get((anio, m)) for m in range(1, 13)]
-        fip_m  = [rf.get((anio, m)) for m in range(1, 13)]
-
-        def total(meses):
-            acc, hay = 1.0, False
-            for v in meses:
-                if v is not None:
-                    acc *= (1 + v)
-                    hay  = True
-            return acc - 1 if hay else None
-
-        hay = any(v is not None for v in icp_m + comp_m + fip_m)
-        if not hay:
-            continue
-
-        resultado.append({
-            "año":   anio,
-            "icp":   icp_m,
-            "icpT":  total(icp_m),
-            "comp":  comp_m  if any(v is not None for v in comp_m)  else None,
-            "compT": total(comp_m) if any(v is not None for v in comp_m) else None,
-            "fip":   fip_m   if any(v is not None for v in fip_m)   else None,
-            "fipT":  total(fip_m)  if any(v is not None for v in fip_m)  else None,
-        })
-
-    return resultado
-
-
-def normalizar_b1000(serie_diaria: pd.Series,
-                     fecha_inicio:  pd.Timestamp,
-                     dividendos:    float = 0.0) -> pd.Series:
-    """Base 1000 desde fecha_inicio para el gráfico."""
-    if serie_diaria.empty:
-        return pd.Series(dtype=float)
-    nivel = _eom_niveles(serie_diaria, dividendos).sort_index()
-    mask  = nivel.index >= fecha_inicio
-    if not mask.any():
-        return pd.Series(dtype=float)
-    v0 = nivel[mask].iloc[0]
-    return (nivel / v0) * 1000 if v0 else pd.Series(dtype=float)
+    return f"{v*100:.2f}%".replace(".", ",")
