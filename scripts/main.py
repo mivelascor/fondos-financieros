@@ -98,7 +98,7 @@ def run(comentario_clp: str, comentario_usd: str):
             comp_cartera = get_cartera_composicion(nombre_fondo)
 
             # Info del fondo
-            info = get_info_fondo(nombre_fondo, moneda)
+            info = get_info_fondo(nombre_fondo, moneda, fd_ts)
 
             # Generar PPTX y PDF
             pptx_path = pptx_dir / f"{nombre_fondo.replace(' ','_')}.pptx"

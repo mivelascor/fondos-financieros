@@ -244,15 +244,18 @@ def fecha_inicio_es(ts: pd.Timestamp) -> str:
     return f"{MESES_ES[ts.month]} {ts.year}"
 
 
-def get_info_fondo(nombre: str, moneda: str, fecha_inicio_ts: pd.Timestamp) -> dict:
+def get_info_fondo(nombre: str, moneda: str, fecha_inicio_ts=None) -> dict:
     """Retorna dict con toda la info del fondo para el folleto."""
     info = dict(_DEFAULTS)
     especifica = _INFO.get(nombre, {})
     info.update(especifica)
 
-    # Si el fondo no tiene fecha fija en _INFO, calcularla desde el primer dato
+    # Si el fondo no tiene fecha fija en _INFO y se pasa fecha_inicio_ts, calcularla
     if "fecha_inicio" not in especifica:
-        info["fecha_inicio"] = fecha_inicio_es(fecha_inicio_ts)
+        if fecha_inicio_ts is not None:
+            info["fecha_inicio"] = fecha_inicio_es(fecha_inicio_ts)
+        else:
+            info["fecha_inicio"] = ""  # fallback vacío
 
     # Moneda siempre viene de la detección en main.py
     info["moneda"] = moneda
