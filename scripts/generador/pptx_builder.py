@@ -1,114 +1,115 @@
-"""
-generador/pptx_builder.py — Genera PPTX usando generar_folleto.js (pptxgenjs).
-"""
-import subprocess, json
-import numpy as np
-import pandas as pd
+"""generador/pptx_builder.py — Pasa datos al generar_folleto.js."""
+import subprocess, json, numpy as np, pandas as pd
 from pathlib import Path
 
 JS_DIR    = Path(__file__).parent
 JS_SCRIPT = JS_DIR / "generar_folleto.js"
 
-def _safe(v):
+
+def _s(v):
     if v is None: return None
     if isinstance(v, float) and (np.isnan(v) or np.isinf(v)): return None
     return float(v)
 
-def generar_pptx(
-    nombre_fondo, periodo_str, comentario_pm,
-    b1000_fondo, b1000_comp, b1000_icp,
-    tabla_resumen, tabla_historica, comp_cartera,
-    info_fondo, out_path,
-):
+
+def generar_pptx(nombre_fondo, periodo_str, comentario_pm,
+                 tabla_resumen, tabla_historica,
+                 b1000_fondo, b1000_icp, b1000_comp,
+                 comp_cartera, info_fondo, out_path):
+
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    nombre_corto = nombre_fondo.replace("FIP VANTRUST ", "").title()
-    anio_actual  = int(periodo_str.split(" ")[-1]) if " " in periodo_str else 2026
+    nombre_corto = nombre_fondo.replace("FIP VANTRUST LIQUIDEZ ","").replace("FIP VANTRUST ","").title()
+    anio_actual  = periodo_str.split(" ")[-1] if " " in periodo_str else "2026"
 
-    # Grafico
-    grafico_labels, grafico_fondo, grafico_icp, grafico_comp = [], [], [], []
-    for f in sorted(b1000_fondo.index):
-        vf = _safe(b1000_fondo.get(f))
-        if vf is not None:
-            grafico_labels.append(pd.Timestamp(f).strftime("%b %Y"))
-            grafico_fondo.append(round(vf, 2))
-            vi = _safe(b1000_icp.get(f))  if not b1000_icp.empty  and f in b1000_icp.index  else None
-            vc = _safe(b1000_comp.get(f)) if not b1000_comp.empty and f in b1000_comp.index else None
-            grafico_icp.append(round(vi, 2) if vi else None)
-            grafico_comp.append(round(vc, 2) if vc else None)
-
-    # Tabla resumen (strings ya formateados)
-    tabla_rentab = []
+    # Resumen: extraer los valores string de la tabla
+    resumen = {"icp":{}, "comp":{}, "fip":{}}
     if tabla_resumen is not None and not tabla_resumen.empty:
         for _, row in tabla_resumen.iterrows():
-            tabla_rentab.append({
-                "nombre":     str(row.get("nombre", "")),
-                "mensual":    str(row.get("mensual", "")),
-                "trimestral": str(row.get("trimestral", "")),
-                "semestral":  str(row.get("semestral", "")),
-                "anual":      str(row.get("anual", "")),
-                "ytd":        str(row.get("ytd", "")),
-                "es_fondo":   bool(row.get("es_fondo", False)),
-            })
+            nombre = row.get("nombre","")
+            vals   = {"m": row.get("mensual","—"), "t": row.get("trimestral","—"),
+                      "s": row.get("semestral","—"), "a": row.get("anual","—"),
+                      "ac": row.get("ytd","—")}
+            if "ICP" in nombre:
+                resumen["icp"]  = vals
+            elif "Comp" in nombre:
+                resumen["comp"] = vals
+            else:
+                resumen["fip"]  = vals
 
-    # Tabla historica (valores como floats para que JS los formatee)
-    tabla_hist_json = []
-    for anio_data in (tabla_historica or []):
-        series_out = []
-        for serie in anio_data.get("series", []):
-            vals  = [_safe(v) for v in (serie.get("valores") or [])]
-            total = _safe(serie.get("total"))
-            series_out.append({
-                "nombre":   serie.get("nombre", ""),
-                "es_fondo": bool(serie.get("es_fondo", False)),
-                "valores":  vals,
-                "total":    total,
-            })
-        tabla_hist_json.append({"anio": anio_data["anio"], "series": series_out})
+    # Nombre del FIP (tomado de la tabla resumen)
+    nombre_fip = "FIP"
+    if tabla_resumen is not None and not tabla_resumen.empty:
+        fip_row = tabla_resumen[tabla_resumen.get("es_fondo", pd.Series(False, index=tabla_resumen.index))]
+        if not fip_row.empty:
+            nombre_fip = str(fip_row.iloc[0]["nombre"])
+
+    # Histórico
+    historico = []
+    for h in (tabla_historica or []):
+        historico.append({
+            "año":   h["año"],
+            "icp":   [_s(v) for v in (h.get("icp")  or [None]*12)],
+            "icpT":  _s(h.get("icpT")),
+            "comp":  [_s(v) for v in (h.get("comp") or [])] if h.get("comp") is not None else None,
+            "compT": _s(h.get("compT")),
+            "fip":   [_s(v) for v in (h.get("fip")  or [])] if h.get("fip")  is not None else None,
+            "fipT":  _s(h.get("fipT")),
+        })
+
+    # Gráfico: datos b1000 reducidos a EOM
+    def serie_to_list(serie):
+        if serie is None or serie.empty: return []
+        s = serie.sort_index()
+        s = s.resample("ME").last().dropna()
+        return [{"fecha": str(i.date()), "val": round(float(v),2)} for i,v in s.items()]
 
     datos = {
-        "nombre_fondo":       nombre_fondo,
-        "nombre_corto":       nombre_corto,
-        "administradora":     info_fondo.get("administradora", "Vantrust Gestion Patrimonial S.A."),
-        "rut":                info_fondo.get("rut", "76,637,334-8"),
-        "moneda":             info_fondo.get("moneda", "CLP"),
-        "tipo":               info_fondo.get("tipo", "Fondo de Inversion Privado"),
-        "fecha_inicio":       info_fondo.get("fecha_inicio", ""),
-        "benchmark":          info_fondo.get("benchmark", "Indice Camara Promedio (ICP)"),
-        "plazo_rescate":      info_fondo.get("plazo_rescate", "A mas tardar 15 dias corridos"),
-        "remuneracion":       info_fondo.get("remuneracion", "0,295% IVA Incluido"),
-        "objetivo":           "Invertir los recursos del fondo en instrumentos de deuda de corto y mediano plazo, en una cartera diversificada, obteniendo una rentabilidad igual o superior al ICP.",
-        "rentabilidad_texto": f"La rentabilidad esperada del {nombre_fondo}, es la tasa de politica monetaria promedio del Banco Central de Chile.",
-        "inversionistas":     "Dirigida a empresas y personas que buscan invertir sus excedentes de caja con una rentabilidad de corto plazo y baja tolerancia al riesgo.",
-        "comentario":         comentario_pm,
-        "anio_acum":          str(anio_actual),
-        "grafico_labels":     grafico_labels,
-        "grafico_fondo":      grafico_fondo,
-        "grafico_icp":        [x for x in grafico_icp  if x is not None],
-        "grafico_comp":       [x for x in grafico_comp if x is not None],
-        "tabla_rentab":       tabla_rentab,
-        "tabla_historica":    tabla_hist_json,
-        "comp_moneda":        comp_cartera.get("moneda", []),
-        "comp_duracion":      comp_cartera.get("duracion", []),
-        "comp_instrumento":   comp_cartera.get("instrumento", []),
+        "nombre_fondo":   nombre_fondo,
+        "nombre_corto":   nombre_corto,
+        "nombre_fip":     nombre_fip,
+        "periodo":        periodo_str,
+        "anio_acum":      anio_actual,
+        "comentario":     comentario_pm,
+        # Info general
+        "administradora": info_fondo.get("administradora","Vantrust Gestion Patrimonial S.A."),
+        "rut":            info_fondo.get("rut",""),
+        "moneda":         info_fondo.get("moneda","CLP"),
+        "tipo":           info_fondo.get("tipo","Fondo de Inversión Privado"),
+        "fecha_inicio":   info_fondo.get("fecha_inicio",""),
+        "benchmark":      info_fondo.get("benchmark","Índice Cámara Promedio (ICP)"),
+        "plazo_rescate":  info_fondo.get("plazo_rescate","A más tardar 15 días corridos"),
+        "remuneracion":   info_fondo.get("remuneracion","0,295% IVA Incluido"),
+        "objetivo":       info_fondo.get("objetivo",""),
+        "rentabilidad_texto": info_fondo.get("rentabilidad_texto",""),
+        "inversionistas": info_fondo.get("inversionistas",""),
+        # Rentabilidades
+        "resumen":     resumen,
+        "historico":   historico,
+        # Gráfico
+        "b1000_fondo": serie_to_list(b1000_fondo),
+        "b1000_icp":   serie_to_list(b1000_icp),
+        "b1000_comp":  serie_to_list(b1000_comp),
+        # Composición
+        "comp_moneda":       comp_cartera.get("moneda",[]),
+        "comp_duracion":     comp_cartera.get("duracion",[]),
+        "comp_instrumentos": comp_cartera.get("instrumentos",[]),
     }
 
     json_path = out_path.parent / f"_tmp_{out_path.stem}.json"
-    with open(json_path, "w", encoding="utf-8") as f:
+    with open(json_path,"w",encoding="utf-8") as f:
         json.dump(datos, f, ensure_ascii=False)
 
     try:
-        result = subprocess.run(
+        r = subprocess.run(
             ["node", str(JS_SCRIPT), "--data", str(json_path), "--out", str(out_path)],
-            capture_output=True, text=True, timeout=60, cwd=str(JS_DIR)
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"generar_folleto.js fallo:\n{result.stderr}\n{result.stdout}")
+            capture_output=True, text=True, timeout=60, cwd=str(JS_DIR))
+        if r.returncode != 0:
+            raise RuntimeError(f"JS error:\n{r.stderr}\n{r.stdout}")
         if not out_path.exists():
-            raise FileNotFoundError(f"PPTX no generado: {out_path}")
+            raise FileNotFoundError(f"PPTX no creado: {out_path}")
     finally:
-        if json_path.exists():
-            json_path.unlink()
+        if json_path.exists(): json_path.unlink()
 
     return out_path
