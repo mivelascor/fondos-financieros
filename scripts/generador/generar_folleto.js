@@ -170,8 +170,8 @@ function slide1(pres, d) {
     lin(sl,yr,DER,DER_W,C.grisLin,0.5);yr+=0.07;
 
     const mL=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic","Total\nAño"];
-    // colW exactos: año(0.22) + fondo(0.90) + 12 meses(0.27×12) + total(0.31) = 5.41
-    const cw=[0.22,0.90,0.27,0.27,0.27,0.27,0.27,0.27,0.27,0.27,0.27,0.27,0.27,0.27,0.31];
+    // año(0.22) + fondo(0.88) + 12×mes(0.32) + total(0.33) = 5.27" = DER_W
+    const cw=[0.22,0.88,0.32,0.32,0.32,0.32,0.32,0.32,0.32,0.32,0.32,0.32,0.32,0.32,0.33];
     const bH=[{pt:1.5,color:C.negro},{pt:0.2,color:"EEEEEE"},{pt:1.5,color:C.negro},{pt:0.2,color:"EEEEEE"}];
     const bD=[{pt:0.2,color:"EEEEEE"},{pt:0.2,color:"EEEEEE"},{pt:0.2,color:"EEEEEE"},{pt:0.2,color:"EEEEEE"}];
     const mkTH=(t,l=false)=>({text:t,options:{
@@ -180,35 +180,42 @@ function slide1(pres, d) {
 
     const trows=[[mkTH("Año",true),mkTH("Fondo",true),...mL.map(m=>mkTH(m))]];
 
-    // Color por tipo de serie
     function colorSerie(nombre) {
-      const n=nombre.toLowerCase();
+      const n=(nombre||"").toLowerCase();
       if(n.includes("icp")||n.includes("benchmark")) return "777777";
       if(n.includes("compet")) return "999999";
-      return C.negro; // FIP
+      return C.negro;
     }
 
     historico.forEach(añoData=>{
-      let primeraFila=true;
+      let isFirst=true;
       (añoData.filas||[]).forEach(fila=>{
         const col = colorSerie(fila.nombre);
+        // Fuente 4.5pt para el nombre (permite hasta 25 chars en 0.88")
+        const fontNombre = (fila.nombre||"").length > 18 ? 4 : 5;
         const meses = fila.meses||Array(12).fill(null);
         const total = fila.total;
         const opt=(extra={})=>({fontSize:5,fontFace:"Calibri",color:col,align:"center",border:bD,wrap:false,...extra});
         const row=[
-          {text:primeraFila?String(añoData.año):"",options:{fontSize:5,bold:true,fontFace:"Calibri",color:C.negro,align:"left",border:bD,wrap:false}},
-          {text:fila.nombre,options:opt({align:"left"})},
-          ...meses.map(v=>({text:v!==null?pct(v):"",options:opt()})),
-          {text:total!==null&&total!==undefined?pct(total):"—",options:opt({bold:true})}
+          {text:isFirst?String(añoData.año):"",
+           options:{fontSize:5,bold:true,fontFace:"Calibri",color:C.negro,align:"left",border:bD,wrap:false}},
+          {text:fila.nombre||"",
+           options:{fontSize:fontNombre,fontFace:"Calibri",color:col,align:"left",border:bD,wrap:false}},
+          ...meses.map(v=>({
+            text:v!==null&&v!==undefined?pct(v):"",
+            options:opt()
+          })),
+          {text:total!==null&&total!==undefined?pct(total):"—",
+           options:opt({bold:true})}
         ];
         trows.push(row);
-        primeraFila=false;
+        isFirst=false;
       });
     });
 
-    // Calcular rowH dinámico para que quepa en el espacio restante
+    // rowH dinámico para que quepa en el espacio restante
     const espacioDisp = H - yr - 0.05;
-    const rowH = Math.min(0.135, Math.max(0.09, espacioDisp / trows.length));
+    const rowH = Math.min(0.135, Math.max(0.085, espacioDisp / trows.length));
     sl.addTable(trows,{x:DER,y:yr,w:DER_W,colW:cw,rowH});
   }
 }
