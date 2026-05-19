@@ -1,15 +1,5 @@
 """
 main.py — Genera los 24 folletos mensuales de Vantrust.
-
-INPUTS MANUALES (admin.html):
-  - Comentario CLP/USD
-  - cartera.xlsx (opcional, solo si cambió)
-
-TODO LO DEMÁS ES AUTOMÁTICO:
-  - Valores cuota FIP:  API SQL (ODS.VALORES_CUOTA_GPI)
-  - ICP:                mindicador.cl / BCCh
-  - Competencia:        CMF scraping + histórico hardcodeado
-  - Histórico previo:   inputs/historico_fondos.json (se actualiza solo)
 """
 import sys, os, zipfile, base64, requests
 from datetime import date, timedelta
@@ -18,8 +8,8 @@ import pandas as pd
 
 from config import (FONDOS_CON_FOLLETO, OUTPUT_DIR, GITHUB_TOKEN,
                     GITHUB_REPO, GITHUB_BRANCH, get_info_fondo, MESES_ES)
-from etl.datos_manager   import (cargar_historico, guardar_historico,
-                                  actualizar_y_calcular, get_icp_nivel_serie,
+from etl.datos_manager   import (cargar_historico, calcular_datos_fondo,
+                                  get_icp_nivel_serie,
                                   get_competencia_clp, get_competencia_usd)
 from etl.excel_reader    import get_cartera_composicion
 from generador.pptx_builder import generar_pptx
@@ -35,7 +25,7 @@ def _periodo_es(fd):
 
 def _gh_put(path, repo_path, msg):
     h = {"Authorization": f"Bearer {GITHUB_TOKEN}",
-         "Accept":        "application/vnd.github+json"}
+         "Accept": "application/vnd.github+json"}
     api = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{repo_path}"
     r   = requests.get(api, headers=h, timeout=30)
     sha = r.json().get("sha") if r.status_code == 200 else None
@@ -55,22 +45,33 @@ def run(comentario_clp: str, comentario_usd: str):
 
     print(f"\n{'='*60}\n FOLLETOS {periodo} — {fd}\n{'='*60}\n")
 
-    # ── 1. Datos globales ──────────────────────────────────────────────────
     print("[1/4] Cargando datos globales...")
-
     historico = cargar_historico()
-    print(f"  Histórico: {len(historico)} fondos cargados")
+    print(f"  Histórico: {len(historico)} fondos cargados del JSON")
 
+    # Obtener ICP y competencia (solo se usan si la API tiene un mes más nuevo)
     print("  ICP (mindicador.cl)...")
-    icp_serie = get_icp_nivel_serie()
-    print(f"    {len(icp_serie)} meses de ICP ({icp_serie.index[0].year}-{icp_serie.index[-1].year})")
+    try:
+        icp_serie = get_icp_nivel_serie()
+        print(f"    {len(icp_serie)} meses ({icp_serie.index[0].year}-{icp_serie.index[-1].year})")
+    except Exception as e:
+        print(f"    [WARN] ICP no disponible: {e}")
+        icp_serie = pd.Series(dtype=float)
 
     print("  Competencia CLP (CMF)...")
-    comp_clp = get_competencia_clp()
-    print("  Competencia USD (CMF)...")
-    comp_usd = get_competencia_usd()
+    try:
+        comp_clp = get_competencia_clp()
+    except Exception as e:
+        print(f"    [WARN] Comp CLP no disponible: {e}")
+        comp_clp = pd.Series(dtype=float)
 
-    # ── 2. Generar folletos ────────────────────────────────────────────────
+    print("  Competencia USD (CMF)...")
+    try:
+        comp_usd = get_competencia_usd()
+    except Exception as e:
+        print(f"    [WARN] Comp USD no disponible: {e}")
+        comp_usd = pd.Series(dtype=float)
+
     pptx_dir = OUTPUT_DIR / mes_str / "pptx"
     pdf_dir  = OUTPUT_DIR / mes_str
     pptx_dir.mkdir(parents=True, exist_ok=True)
@@ -80,13 +81,12 @@ def run(comentario_clp: str, comentario_usd: str):
 
     for nombre_fondo in FONDOS_CON_FOLLETO:
         try:
-            es_usd     = any(x in nombre_fondo.upper() for x in ("DOLAR", "USD"))
+            es_usd     = any(x in nombre_fondo.upper() for x in ("DOLAR","USD"))
             moneda     = "USD" if es_usd else "CLP"
             comentario = comentario_usd if es_usd else comentario_clp
             comp_serie = comp_usd if es_usd else comp_clp
 
-            # Calcular todo (fusiona histórico JSON + datos API actuales)
-            datos = actualizar_y_calcular(
+            datos = calcular_datos_fondo(
                 nombre_fondo = nombre_fondo,
                 historico    = historico,
                 icp_serie    = icp_serie,
@@ -94,13 +94,9 @@ def run(comentario_clp: str, comentario_usd: str):
                 fecha_fin    = fd_ts,
             )
 
-            # Composición de cartera
             comp_cartera = get_cartera_composicion(nombre_fondo)
+            info         = get_info_fondo(nombre_fondo, moneda, fd_ts)
 
-            # Info del fondo
-            info = get_info_fondo(nombre_fondo, moneda, fd_ts)
-
-            # Generar PPTX y PDF
             pptx_path = pptx_dir / f"{nombre_fondo.replace(' ','_')}.pptx"
             generar_pptx(
                 nombre_fondo   = nombre_fondo,
@@ -123,7 +119,6 @@ def run(comentario_clp: str, comentario_usd: str):
         print("\nERROR: Sin folletos. Abortando.")
         sys.exit(1)
 
-    # ── 3. ZIP ────────────────────────────────────────────────────────────
     print(f"\n[3/4] ZIP ({len(pdf_paths)} PDFs)...")
     zip_mes    = pdf_dir    / f"folletos_{mes_str}.zip"
     zip_latest = OUTPUT_DIR / "latest.zip"
@@ -132,7 +127,6 @@ def run(comentario_clp: str, comentario_usd: str):
             for pdf in pdf_paths:
                 zf.write(pdf, arcname=pdf.name)
 
-    # ── 4. GitHub ──────────────────────────────────────────────────────────
     if GITHUB_TOKEN:
         print("[4/4] Subiendo a GitHub...")
         _gh_put(zip_latest, "folletos/latest.zip",       f"latest.zip {mes_str}")
