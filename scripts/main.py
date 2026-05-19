@@ -1,5 +1,17 @@
 """
 main.py — Genera los 24 folletos mensuales de Vantrust.
+
+FLUJO MENSUAL:
+  1. Actualizar los templates Excel con datos nuevos (API SQL, ICP, CMF)
+  2. LibreOffice recalcula las fórmulas del Excel
+  3. Leer los valores calculados del Excel (template_reader.py)
+  4. Generar el PPT con python-pptx/pptxgenjs (generar_folleto.js)
+  5. LibreOffice convierte el PPT a PDF
+  6. Subir ZIPs y PDFs a GitHub
+
+INPUTS MANUALES (admin.html):
+  - Comentario CLP/USD del Portfolio Manager
+  - cartera.xlsx (solo si la composición cambió)
 """
 import sys, os, zipfile, base64, requests
 from datetime import date, timedelta
@@ -8,12 +20,11 @@ import pandas as pd
 
 from config import (FONDOS_CON_FOLLETO, OUTPUT_DIR, GITHUB_TOKEN,
                     GITHUB_REPO, GITHUB_BRANCH, get_info_fondo, MESES_ES)
-from etl.datos_manager   import (cargar_historico, calcular_datos_fondo,
-                                  get_icp_nivel_serie,
-                                  get_competencia_clp, get_competencia_usd)
-from etl.excel_reader    import get_cartera_composicion
-from generador.pptx_builder import generar_pptx
-from generador.pdf_exporter import pptx_a_pdf
+from etl.actualizar_templates import actualizar_todos
+from etl.template_reader      import leer_datos_template
+from etl.excel_reader         import get_cartera_composicion
+from generador.pptx_builder   import generar_pptx
+from generador.pdf_exporter   import pptx_a_pdf
 
 
 def _fecha_ref():
@@ -45,58 +56,39 @@ def run(comentario_clp: str, comentario_usd: str):
 
     print(f"\n{'='*60}\n FOLLETOS {periodo} — {fd}\n{'='*60}\n")
 
-    print("[1/4] Cargando datos globales...")
-    historico = cargar_historico()
-    print(f"  Histórico: {len(historico)} fondos cargados del JSON")
+    # ── 1. Actualizar templates Excel ──────────────────────────────────────
+    from datetime import datetime
+    fecha_dt = datetime(fd.year, fd.month, fd.day)
 
-    # Obtener ICP y competencia (solo se usan si la API tiene un mes más nuevo)
-    print("  ICP (mindicador.cl)...")
-    try:
-        icp_serie = get_icp_nivel_serie()
-        print(f"    {len(icp_serie)} meses ({icp_serie.index[0].year}-{icp_serie.index[-1].year})")
-    except Exception as e:
-        print(f"    [WARN] ICP no disponible: {e}")
-        icp_serie = pd.Series(dtype=float)
+    print("[1/4] Actualizando templates Excel con datos nuevos...")
+    resultados = actualizar_todos(fecha_dt, FONDOS_CON_FOLLETO)
+    ok_count = sum(1 for v in resultados.values() if v)
+    print(f"  {ok_count}/{len(FONDOS_CON_FOLLETO)} templates actualizados\n")
 
-    print("  Competencia CLP (CMF)...")
-    try:
-        comp_clp = get_competencia_clp()
-    except Exception as e:
-        print(f"    [WARN] Comp CLP no disponible: {e}")
-        comp_clp = pd.Series(dtype=float)
-
-    print("  Competencia USD (CMF)...")
-    try:
-        comp_usd = get_competencia_usd()
-    except Exception as e:
-        print(f"    [WARN] Comp USD no disponible: {e}")
-        comp_usd = pd.Series(dtype=float)
-
+    # ── 2. Generar folletos ────────────────────────────────────────────────
     pptx_dir = OUTPUT_DIR / mes_str / "pptx"
     pdf_dir  = OUTPUT_DIR / mes_str
     pptx_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n[2/4] Generando {len(FONDOS_CON_FOLLETO)} folletos...\n")
+    print(f"[2/4] Generando {len(FONDOS_CON_FOLLETO)} folletos...\n")
     pdf_paths, errores = [], []
 
     for nombre_fondo in FONDOS_CON_FOLLETO:
         try:
-            es_usd     = any(x in nombre_fondo.upper() for x in ("DOLAR","USD"))
+            es_usd     = any(x in nombre_fondo.upper() for x in ("DOLAR", "USD"))
             moneda     = "USD" if es_usd else "CLP"
             comentario = comentario_usd if es_usd else comentario_clp
-            comp_serie = comp_usd if es_usd else comp_clp
 
-            datos = calcular_datos_fondo(
-                nombre_fondo = nombre_fondo,
-                historico    = historico,
-                icp_serie    = icp_serie,
-                comp_serie   = comp_serie,
-                fecha_fin    = fd_ts,
-            )
+            # Leer datos del template Excel actualizado
+            datos = leer_datos_template(nombre_fondo)
 
+            # Composición de cartera
             comp_cartera = get_cartera_composicion(nombre_fondo)
-            info         = get_info_fondo(nombre_fondo, moneda, fd_ts)
 
+            # Info del fondo
+            info = get_info_fondo(nombre_fondo, moneda, fd_ts)
+
+            # Generar PPT
             pptx_path = pptx_dir / f"{nombre_fondo.replace(' ','_')}.pptx"
             generar_pptx(
                 nombre_fondo   = nombre_fondo,
@@ -107,6 +99,8 @@ def run(comentario_clp: str, comentario_usd: str):
                 info_fondo     = info,
                 out_path       = pptx_path,
             )
+
+            # Convertir a PDF
             pdf_path = pptx_a_pdf(pptx_path, pdf_dir)
             pdf_paths.append(pdf_path)
             print(f"  [OK] {nombre_fondo}")
@@ -119,6 +113,7 @@ def run(comentario_clp: str, comentario_usd: str):
         print("\nERROR: Sin folletos. Abortando.")
         sys.exit(1)
 
+    # ── 3. ZIP ────────────────────────────────────────────────────────────
     print(f"\n[3/4] ZIP ({len(pdf_paths)} PDFs)...")
     zip_mes    = pdf_dir    / f"folletos_{mes_str}.zip"
     zip_latest = OUTPUT_DIR / "latest.zip"
@@ -127,12 +122,20 @@ def run(comentario_clp: str, comentario_usd: str):
             for pdf in pdf_paths:
                 zf.write(pdf, arcname=pdf.name)
 
+    # ── 4. Subir a GitHub ─────────────────────────────────────────────────
     if GITHUB_TOKEN:
         print("[4/4] Subiendo a GitHub...")
         _gh_put(zip_latest, "folletos/latest.zip",       f"latest.zip {mes_str}")
         _gh_put(zip_mes, f"folletos/{mes_str}/folletos_{mes_str}.zip", f"ZIP {mes_str}")
         for pdf in pdf_paths:
             _gh_put(pdf, f"folletos/{mes_str}/{pdf.name}", f"{pdf.stem} {mes_str}")
+        # Subir también los templates Excel actualizados
+        from etl.actualizar_templates import TEMPLATE_MAP, TEMPLATES_DIR
+        for nombre_fondo, archivo in TEMPLATE_MAP.items():
+            ruta = TEMPLATES_DIR / archivo
+            if ruta.exists() and resultados.get(nombre_fondo):
+                _gh_put(ruta, f"inputs/templates/{archivo}",
+                        f"Template actualizado {mes_str}")
 
     print(f"\n{'='*60} {periodo}: {len(pdf_paths)} OK", end="")
     if errores:
